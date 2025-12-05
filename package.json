@@ -26,6 +26,7 @@
         "nodemailer": "^7.0.10",
         "openai": "^6.9.1",
         "path": "^0.12.7",
+        "railway": "^2.0.17",
         "socket.io": "^4.8.1",
         "socket.io-client": "^4.8.1",
         "validator": "^13.15.23"

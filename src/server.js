@@ -66,7 +66,7 @@ app.get("/api/test", (req, res) => {
 });
 
 // Health endpoint (root-level)
-app.get("/health", (req, res) => {
+app.get("/health-check", (req, res) => {
   res.json({
     status: "healthy",
     service: "LA-TREL Backend",
