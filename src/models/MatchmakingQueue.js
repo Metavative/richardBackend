@@ -90,4 +90,4 @@ matchmakingQueueSchema.methods.cancel = function() {
 };
 
 const MatchmakingQueue = mongoose.model("MatchmakingQueue", matchmakingQueueSchema);
-export default MatchmakingQueue;
+export default MatchmakingQueue; 

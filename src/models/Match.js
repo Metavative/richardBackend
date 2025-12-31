@@ -127,4 +127,4 @@ matchSchema.methods.getOpponent = function(userId) {
 };
 
 const Match = mongoose.model("Match", matchSchema);
-export default Match;
+export default Match; 

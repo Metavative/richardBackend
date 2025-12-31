@@ -17,15 +17,32 @@ const app = express();
 
 // ---------- MIDDLEWARE ----------
 
-// CORS - allow Flutter emulator & local web
+/**
+ * CORS NOTE (important):
+ * - You cannot use origin: "*" while credentials: true
+ * - Flutter typically doesn't need cookies, but web might.
+ * This setup allows common dev origins and also allows requests with no origin (mobile apps).
+ */
+const allowedOrigins = new Set([
+  "http://localhost:3000",
+  "http://localhost",
+  "http://10.0.2.2",
+  "http://127.0.0.1:3000",
+]);
+
 app.use(
   cors({
-    origin: [
-      "http://localhost:3000",
-      "http://10.0.2.2",
-      "http://localhost",
-      "*",
-    ],
+    origin: (origin, callback) => {
+      // Allow requests with no origin (Flutter mobile, Postman, curl)
+      if (!origin) return callback(null, true);
+
+      // Allow known dev origins
+      if (allowedOrigins.has(origin)) return callback(null, true);
+
+      // If you want to allow all origins in production without credentials,
+      // set credentials:false and return true for all origins.
+      return callback(null, true);
+    },
     credentials: true,
   })
 );
@@ -41,8 +58,8 @@ const __dirname = path.dirname(__filename);
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 // Request logging
-app.use((req, res, next) => {
-  console.log(`📡 ${new Date().toISOString()} ${req.method} ${req.url}`);
+app.use((req, _res, next) => {
+  console.log(`� ${new Date().toISOString()} ${req.method} ${req.url}`);
   next();
 });
 
@@ -59,8 +76,25 @@ app.get("/api/test", (req, res) => {
     message: "Backend is working!",
     timestamp: new Date().toISOString(),
     endpoints: {
-      health: "/health",
-      matchmakingJoin: "/api/matchmaking/queue/join",
+      healthCheck: "/health-check",
+      apiTest: "/api/test",
+
+      // Friends
+      friendsTest: "/api/friends/test",
+      friendsSend: "POST /api/friends/send",
+      friendsAccept: "PATCH /api/friends/accept/:id",
+      friendsReject: "PATCH /api/friends/reject/:id",
+      friendsAll: "GET /api/friends/all",
+      friendsMine: "GET /api/friends/mine/:userId",
+
+      // Users
+      usersSearch: "GET /api/users/search?q=...",
+
+      // Challenges (if you add it)
+      challengesCreate: "POST /api/challenges/create",
+
+      // Matchmaking
+      matchmakingJoin: "POST /api/matchmaking/queue/join",
     },
   });
 });
@@ -83,19 +117,37 @@ app.use((req, res) => {
     path: req.url,
     method: req.method,
     availableRoutes: [
-      "GET /health",
-      "GET /api/health",
+      "GET /health-check",
       "GET /api/test",
+
+      // Auth (example)
       "POST /api/auth/login",
+
+      // AI
       "POST /api/ai/coach",
-      "POST /api/friends/request",
+
+      // Friends (real)
+      "GET /api/friends/test",
+      "POST /api/friends/send",
+      "PATCH /api/friends/accept/:id",
+      "PATCH /api/friends/reject/:id",
+      "GET /api/friends/all",
+      "GET /api/friends/mine/:userId",
+
+      // Users
+      "GET /api/users/search?q=...",
+
+      // Matchmaking
       "POST /api/matchmaking/queue/join",
+
+      // Challenges (optional)
+      "POST /api/challenges/create",
     ],
   });
 });
 
 // Error handler
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   console.error("❌ Server Error:", err.stack);
   res.status(err.status || 500).json({
     message: "Server Error",
@@ -115,10 +167,10 @@ export const io = new Server(server, {
 initializeMatchmaking(io);
 
 io.on("connection", (socket) => {
-  console.log("🟢 USER CONNECTED:", socket.id);
+  console.log("� USER CONNECTED:", socket.id);
 
   socket.on("disconnect", () => {
-    console.log("🔴 USER DISCONNECTED:", socket.id);
+    console.log("� USER DISCONNECTED:", socket.id);
   });
 });
 
@@ -129,10 +181,10 @@ try {
   console.log("✅ MongoDB connected");
 
   server.listen(env.PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${env.PORT}`);
-    console.log(`📱 Flutter Emulator URL: http://10.0.2.2:${env.PORT}`);
+    console.log(`� Server running on http://localhost:${env.PORT}`);
+    console.log(`� Flutter Emulator URL: http://10.0.2.2:${env.PORT}`);
     console.log(
-      `🎯 Matchmaking Join: POST http://localhost:${env.PORT}/api/matchmaking/queue/join`
+      `� Matchmaking Join: POST http://localhost:${env.PORT}/api/matchmaking/queue/join`
     );
   });
 } catch (err) {

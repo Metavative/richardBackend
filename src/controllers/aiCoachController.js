@@ -72,8 +72,8 @@ function generateMovesForPiece(board, row, col, piece, turn) {
   let directions = [];
   const type = piece.toUpperCase();
 
-  // Approx La-Trel-like:
-  // W: queen-like, S: rook-like, T: bishop-like, D: 1-step any dir (no capture)
+  // Approx La Trel like:
+  // W: queen like, S: rook like, T: bishop like, D: 1 step any dir (no capture)
   if (type === "W") {
     directions = [...dirsOrth, ...dirsDiag];
   } else if (type === "S") {
@@ -98,7 +98,7 @@ function generateMovesForPiece(board, row, col, piece, turn) {
       const target = board[r][c];
 
       if (type === "D") {
-        // Defender: only 1-step non-capture
+        // Defender, only 1 step non capture
         if (step === 1 && !target) {
           moves.push({
             piece,
@@ -180,26 +180,26 @@ function applyMove(board, move) {
 
 /* ----------------------------------------------------
    POSITION EVALUATION
-   Strongly focused on winning: remove enemy attackers,
+   Strongly focused on winning, remove enemy attackers,
    keep your own, with some positional flavor.
 ----------------------------------------------------- */
 
 function evaluateBoard(board, povTurn) {
-  // povTurn = side we're evaluating from (0 = P1, 1 = Bot)
+  // povTurn, side we are evaluating from (0, P1, 1, Bot)
   const { p1, bot } = countAttackers(board);
   const myAttackers = povTurn === 0 ? p1 : bot;
   const oppAttackers = povTurn === 0 ? bot : p1;
 
-  // Hard win / loss
+  // Hard win or loss
   if (oppAttackers === 0 && myAttackers > 0) return 10000;
   if (myAttackers === 0 && oppAttackers > 0) return -10000;
 
   let score = 0;
 
-  // Attackers difference – BIG weight
+  // Attackers difference, big weight
   score += (myAttackers - oppAttackers) * 300;
 
-  // Centralization & activity (lighter)
+  // Centralization and activity
   const center = 3.5;
   let myPieces = 0;
   let oppPieces = 0;
@@ -271,7 +271,7 @@ function negamax(board, turn, depth, alpha, beta, povTurn) {
    LEGAL MOVES FROM CLIENT ONLY (NO ILLEGAL SUGGESTIONS)
 ----------------------------------------------------- */
 
-/** Check if move is at least consistent with board & side to move. */
+/** Check if move is at least consistent with board and side to move. */
 function isConsistentWithBoard(board, move, turn) {
   if (!move || !Array.isArray(move.from) || !Array.isArray(move.to)) return false;
   if (move.from.length !== 2 || move.to.length !== 2) return false;
@@ -300,8 +300,8 @@ function isConsistentWithBoard(board, move, turn) {
 }
 
 /**
- * Strongly win-focused scoring of only legalMoves from client.
- * NO move that isn't in legalMoves will ever be suggested.
+ * Strongly win focused scoring of only legalMoves from client.
+ * No move that is not in legalMoves will ever be suggested.
  */
 function searchBestAmongLegalMoves(board, turn, legalMoves, depth = 2, maxMovesToReturn = 10) {
   const filtered = legalMoves
@@ -332,11 +332,11 @@ function searchBestAmongLegalMoves(board, turn, legalMoves, depth = 2, maxMovesT
     let score = 0;
 
     if (oppAttackersAfter === 0 && myAttackersAfter > 0) {
-      // 🔥 Direct win: kill all enemy attackers
+      // direct win, kill all enemy attackers
       immediateWin = true;
       score = 10000;
     } else {
-      // Base search: look ahead with POV = current player
+      // Base search, look ahead with POV = current player
       const searchScore = -negamax(
         boardAfter,
         1 - turn,
@@ -348,25 +348,25 @@ function searchBestAmongLegalMoves(board, turn, legalMoves, depth = 2, maxMovesT
 
       score += searchScore;
 
-      // Strong heuristics focused on winning:
+      // Strong heuristics focused on winning
 
-      // Δ attackers (opponent)
+      // delta attackers (opponent)
       const deltaOpp = beforeOppAttackers - oppAttackersAfter;
-      // Δ attackers (me)
+      // delta attackers (me)
       const deltaMe = beforeMyAttackers - myAttackersAfter;
 
       // Reward reducing opponent attackers
-      score += deltaOpp * 600; // big bonus per enemy attacker removed
+      score += deltaOpp * 600;
 
-      // Big penalty for losing own attackers
+      // Penalty for losing own attackers
       score -= deltaMe * 800;
 
-      // Extra bonus if this specific move captures an enemy attacker
+      // Bonus if this move captures an enemy attacker
       if (move.isCapture && isAttacker(move.captured)) {
         score += 1000;
       }
 
-      // Small preference for keeping a clear attacker lead
+      // Preference for attacker lead
       const attackerLeadAfter = myAttackersAfter - oppAttackersAfter;
       score += attackerLeadAfter * 100;
     }
@@ -380,7 +380,7 @@ function searchBestAmongLegalMoves(board, turn, legalMoves, depth = 2, maxMovesT
     });
   }
 
-  // Sort by score, with immediate wins always at the top
+  // Sort by score, immediate wins first
   results.sort((a, b) => {
     if (a.immediateWin && !b.immediateWin) return -1;
     if (!a.immediateWin && b.immediateWin) return 1;
@@ -436,7 +436,7 @@ function basicAnalysis(board, turn, gameMode, moveHistory = []) {
 
   if (likelyWinningPosition && currentAttackers > 0 && opponentAttackers > 0) {
     teachingPoints.push(
-      "You are close to a winning position: look for sequences that safely eliminate the last enemy attackers."
+      "You are close to a winning position, look for sequences that safely eliminate the last enemy attackers."
     );
   }
 
@@ -445,7 +445,7 @@ function basicAnalysis(board, turn, gameMode, moveHistory = []) {
   teachingPoints.push("Avoid making a move that improves your position but leaves a key piece undefended.");
 
   const beginnerTips = [
-    "Before every move, ask: can this piece be captured for free?",
+    "Before every move, ask, can this piece be captured for free",
     "Try to move your pieces toward the center if it is safe.",
     "Capturing an enemy attacker safely is usually very strong.",
     "Use defenders to support and protect your attackers.",
@@ -477,7 +477,7 @@ function formatBoardForPrompt(board) {
 }
 
 /* ----------------------------------------------------
-   ENGINE → TEACHER SUMMARY
+   ENGINE TO TEACHER SUMMARY
 ----------------------------------------------------- */
 
 function buildEngineSummary(board, turn, analysis, scoredMoves) {
@@ -519,23 +519,23 @@ async function getTeacherExplanation(board, turn, gameMode, moveHistory, analysi
   const immediateWinAvailable = scoredMoves.some((m) => m.immediateWin);
 
   const prompt = `
-You are a LA-TREL COACH for beginners.
+You are a LA TREL COACH for beginners.
 
-You DO NOT invent moves. The engine already chose the moves.
+You do not invent moves. The engine already chose the moves.
 You only explain them clearly.
 
 GAME INFO:
-- Current player: ${currentPlayer}
-- Game mode: ${analysis.gameMode}
-- Game phase: ${analysis.gamePhase}
-- Turn number: ${analysis.turnCount + 1}
-- Player1 attackers: ${analysis.attackersP1}
-- Bot attackers: ${analysis.attackersBot}
-- Current player attackers: ${analysis.currentAttackers}
-- Opponent attackers: ${analysis.opponentAttackers}
-- Attacker advantage for current player: ${analysis.attackerAdvantage}
-- Likely winning position: ${analysis.likelyWinningPosition}
-- Immediate winning move (engine): ${immediateWinAvailable}
+ Current player: ${currentPlayer}
+ Game mode: ${analysis.gameMode}
+ Game phase: ${analysis.gamePhase}
+ Turn number: ${analysis.turnCount + 1}
+ Player1 attackers: ${analysis.attackersP1}
+ Bot attackers: ${analysis.attackersBot}
+ Current player attackers: ${analysis.currentAttackers}
+ Opponent attackers: ${analysis.opponentAttackers}
+ Attacker advantage for current player: ${analysis.attackerAdvantage}
+ Likely winning position: ${analysis.likelyWinningPosition}
+ Immediate winning move (engine): ${immediateWinAvailable}
 
 BOARD (8x8, "." = empty):
 ${boardString}
@@ -547,13 +547,13 @@ Your job:
 
 1. Explain the POSITION and the ENGINE'S PLAN, not to invent new moves.
 2. Focus on:
-   - Safety of the current player's pieces.
-   - Elimination of enemy attackers.
-   - How the best moves push toward a win.
+   Safety of the current player's pieces.
+   Elimination of enemy attackers.
+   How the best moves push toward a win.
 3. Use very simple language suitable for new players.
-4. Mention why captures or non-captures are good:
-   - e.g. "This move removes an enemy attacker safely."
-   - e.g. "This move improves your piece while staying safe."
+4. Mention why captures or non captures are good:
+   "This move removes an enemy attacker safely."
+   "This move improves your piece while staying safe."
 5. If an immediate win sequence exists (engine shows immediateWin = true), explain that clearly.
 
 Respond in strict JSON with this shape:
@@ -562,7 +562,7 @@ Respond in strict JSON with this shape:
   "summary": "Short summary of the position for the current player.",
   "positionalAssessment": "1–3 sentences describing the position and who stands better.",
   "strategicPlan": "1–3 sentences about how the current player should try to win (safety + elimination).",
-  "teachingPoints": [ "practical, position-specific teaching points" ],
+  "teachingPoints": [ "practical, position specific teaching points" ],
   "beginnerTips": [ "up to 3 short general tips for this position" ],
   "dangerAlert": "Immediate dangers for the current player (if any).",
   "opportunityAlert": "Immediate opportunities from the engine moves.",
@@ -572,12 +572,12 @@ Respond in strict JSON with this shape:
 
   try {
     const completion = await client.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4.1",
       messages: [
         {
           role: "system",
           content:
-            "You are a kind but strong La-Trel coach for beginners. You never invent coordinates. You only explain the engine's choices.",
+            "You are a kind but strong La Trel coach for beginners. You never invent coordinates. You only explain the engine's choices.",
         },
         {
           role: "user",
@@ -611,9 +611,9 @@ Respond in strict JSON with this shape:
       teachingPoints: analysis.teachingPoints,
       beginnerTips: analysis.beginnerTips.slice(0, 3),
       dangerAlert:
-        "Always double-check that your important pieces are not hanging before you move.",
+        "Always double check that your important pieces are not hanging before you move.",
       opportunityAlert:
-        "Check if one of the suggested moves safely captures an enemy attacker or improves your worst-placed piece.",
+        "Check if one of the suggested moves safely captures an enemy attacker or improves your worst placed piece.",
       nextSteps:
         "Pick one of the top suggested moves that either captures an enemy attacker safely or improves your piece activity.",
     };
@@ -621,11 +621,11 @@ Respond in strict JSON with this shape:
 }
 
 /* ----------------------------------------------------
-   MAIN CONTROLLER: /ai/coach
+   MAIN CONTROLLER, /ai/coach
 ----------------------------------------------------- */
 
 export const aiCoach = async (req, res) => {
-  console.log("🧠 aiCoach (legalMoves + win-focused scoring) called");
+  console.log("aiCoach (legalMoves + win focused scoring) called");
 
   try {
     const {
@@ -651,7 +651,7 @@ export const aiCoach = async (req, res) => {
     let immediateWinAvailable = false;
 
     if (Array.isArray(legalMoves) && legalMoves.length > 0) {
-      // ✅ Only score moves that YOUR ENGINE says are legal
+      // Only score moves that your engine says are legal
       scoredMoves = searchBestAmongLegalMoves(board, turn, legalMoves, 2, 10);
       immediateWinAvailable = scoredMoves.some((m) => m.immediateWin);
 
@@ -672,7 +672,7 @@ export const aiCoach = async (req, res) => {
           teachingPrinciples.push("Take material when it is safe.");
         } else {
           reason = "Improves your piece activity and keeps you safer.";
-          teachingPrinciples.push("Improve your worst-placed pieces.");
+          teachingPrinciples.push("Improve your worst placed pieces.");
           teachingPrinciples.push("Move toward the center when safe.");
         }
 
@@ -706,7 +706,7 @@ export const aiCoach = async (req, res) => {
       });
     } else {
       console.warn(
-        "⚠️ No legalMoves provided. Will NOT suggest moves to avoid unplayable suggestions."
+        "No legalMoves provided. Will not suggest moves to avoid unplayable suggestions."
       );
     }
 
@@ -736,7 +736,7 @@ export const aiCoach = async (req, res) => {
       beginnerTips: teacherJson.beginnerTips || analysis.beginnerTips.slice(0, 3),
       positionalAssessment: teacherJson.positionalAssessment,
       strategicPlan: teacherJson.strategicPlan,
-      // ✅ These moves are ALWAYS a subset of your legalMoves, ranked by how much they help winning
+      // These moves are always a subset of your legalMoves, ranked by winning help
       recommendedMoves,
       dangerAlert: teacherJson.dangerAlert,
       opportunityAlert: teacherJson.opportunityAlert,
@@ -751,7 +751,7 @@ export const aiCoach = async (req, res) => {
 
     return res.json(responsePayload);
   } catch (err) {
-    console.error("❌ Fatal error in aiCoach:", err);
+    console.error("Fatal error in aiCoach:", err);
     return res.status(500).json({
       error: "Internal server error",
       message: "AI coach encountered an unexpected error.",
