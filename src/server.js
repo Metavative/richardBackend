@@ -12,6 +12,8 @@ import { env } from "./config/env.js";
 import { connectDB } from "./config/db.js";
 import routes from "./routes/index.js";
 import { initializeMatchmaking } from "./controllers/matchmakingController.js";
+import { initSockets } from "./sockets/index.js";
+import { registerPresenceSockets } from "./sockets/presence.socket.js";
 
 const app = express();
 
@@ -133,8 +135,11 @@ export const io = new Server(server, {
   cors: { origin: "*", methods: ["GET", "POST"] },
 });
 
-// Initialize matchmaking service with io
+// Initialize matchmaking service with io (existing)
 initializeMatchmaking(io);
+
+// Initialize realtime sockets (Step 1 = presence)
+initSockets(io);
 
 io.on("connection", (socket) => {
   console.log("� USER CONNECTED:", socket.id);
