@@ -1,49 +1,140 @@
-import { Router } from "express";
+// src/routes/challengeRoutes.js
+import express from "express";
 import mongoose from "mongoose";
+import createError from "http-errors";
+
+import { requireAuth } from "../middleware/requireAuth.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+
 import Challenge from "../models/Challenge.js";
-// If you want auth on challenges too, uncomment:
-// import { requireAuth } from "../middleware/requireAuth.js";
 
-const router = Router();
+const router = express.Router();
 
-// If you want this secured, enable auth:
-// router.use(requireAuth);
+// ✅ All challenge REST endpoints require auth
+router.use(requireAuth);
 
-// Health/test
-router.get("/test", (_req, res) => {
-  res.json({ message: "Challenge routes working!" });
-});
+/**
+ * POST /api/challenges/create
+ * Body: { toUserId }
+ * - fromUserId is always req.userId (prevents spoofing)
+ */
+router.post(
+  "/create",
+  asyncHandler(async (req, res) => {
+    const fromUserId = req.userId;
+    const toUserId = req.body?.toUserId?.toString?.().trim();
 
-// POST /api/challenges/create  { from, to }
-router.post("/create", async (req, res) => {
-  try {
-    const { from, to } = req.body;
-
-    if (!from || !to) {
-      return res.status(400).json({ message: "from and to required" });
+    if (!toUserId) throw createError(400, "toUserId is required");
+    if (!mongoose.Types.ObjectId.isValid(fromUserId) || !mongoose.Types.ObjectId.isValid(toUserId)) {
+      throw createError(400, "Invalid user id(s)");
     }
+    if (fromUserId === toUserId) throw createError(400, "Cannot challenge yourself");
 
-    if (
-      !mongoose.Types.ObjectId.isValid(from) ||
-      !mongoose.Types.ObjectId.isValid(to)
-    ) {
-      return res.status(400).json({ message: "invalid user id(s)" });
-    }
-
-    if (from === to) {
-      return res.status(400).json({ message: "cannot challenge yourself" });
-    }
-
-    const doc = await Challenge.create({
-      from,
-      to,
+    // Prevent duplicate pending challenges (either direction)
+    const existing = await Challenge.findOne({
+      $or: [
+        { fromUserId, toUserId },
+        { fromUserId: toUserId, toUserId: fromUserId },
+      ],
       status: "pending",
     });
 
-    return res.status(201).json(doc);
-  } catch (err) {
-    return res.status(500).json({ message: err.message });
-  }
-});
+    if (existing) {
+      const err = createError(409, "A pending challenge already exists between these users");
+      err.code = "CHALLENGE_ALREADY_PENDING";
+      throw err;
+    }
+
+    const challenge = await Challenge.create({
+      fromUserId,
+      toUserId,
+      status: "pending",
+    });
+
+    return res.created({ challenge });
+  })
+);
+
+/**
+ * PATCH /api/challenges/:id/accept
+ * Only receiver (toUserId) may accept
+ */
+router.patch(
+  "/:id/accept",
+  asyncHandler(async (req, res) => {
+    const id = req.params.id;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) throw createError(400, "Invalid challenge id");
+
+    const challenge = await Challenge.findById(id);
+    if (!challenge) throw createError(404, "Challenge not found");
+
+    if (challenge.toUserId.toString() !== req.userId) {
+      throw createError(403, "Forbidden");
+    }
+
+    if (challenge.status !== "pending") {
+      const err = createError(400, "Challenge is not pending");
+      err.code = "CHALLENGE_NOT_PENDING";
+      throw err;
+    }
+
+    challenge.status = "accepted";
+    await challenge.save();
+
+    return res.ok({ challenge });
+  })
+);
+
+/**
+ * PATCH /api/challenges/:id/reject
+ * Only receiver (toUserId) may reject
+ */
+router.patch(
+  "/:id/reject",
+  asyncHandler(async (req, res) => {
+    const id = req.params.id;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) throw createError(400, "Invalid challenge id");
+
+    const challenge = await Challenge.findById(id);
+    if (!challenge) throw createError(404, "Challenge not found");
+
+    if (challenge.toUserId.toString() !== req.userId) {
+      throw createError(403, "Forbidden");
+    }
+
+    if (challenge.status !== "pending") {
+      const err = createError(400, "Challenge is not pending");
+      err.code = "CHALLENGE_NOT_PENDING";
+      throw err;
+    }
+
+    challenge.status = "rejected";
+    await challenge.save();
+
+    return res.ok({ challenge });
+  })
+);
+
+/**
+ * GET /api/challenges/mine
+ * Returns challenges where I'm sender or receiver
+ */
+router.get(
+  "/mine",
+  asyncHandler(async (req, res) => {
+    const myId = req.userId;
+
+    const list = await Challenge.find({
+      $or: [{ fromUserId: myId }, { toUserId: myId }],
+    })
+      .populate("fromUserId", "username name profilePic")
+      .populate("toUserId", "username name profilePic")
+      .sort({ createdAt: -1 });
+
+    return res.ok({ challenges: list });
+  })
+);
 
 export default router;

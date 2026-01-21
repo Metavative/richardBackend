@@ -1,20 +1,40 @@
+// src/models/Challenge.js
 import mongoose from "mongoose";
-const { Schema } = mongoose;
 
-const ChallengeSchema = new Schema(
+const challengeSchema = new mongoose.Schema(
   {
-    from: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    to: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    fromUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
+    toUserId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+
     status: {
       type: String,
-      enum: ["pending", "accepted", "declined", "cancelled"],
+      enum: ["pending", "accepted", "rejected", "expired"],
       default: "pending",
+      index: true,
     },
   },
   { timestamps: true }
 );
 
-ChallengeSchema.index({ from: 1, to: 1, status: 1, createdAt: -1 });
+// Prevent duplicate pending challenges between the same two users
+challengeSchema.index(
+  { fromUserId: 1, toUserId: 1, status: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: "pending" },
+  }
+);
 
-export default mongoose.models.Challenge ||
-  mongoose.model("Challenge", ChallengeSchema);
+export const Challenge = mongoose.model("Challenge", challengeSchema);
+export default Challenge;

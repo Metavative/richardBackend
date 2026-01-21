@@ -1,42 +1,64 @@
-import { Router } from "express";
+// src/routes/matchmakingRoutes.js
+import express from "express";
+import createError from "http-errors";
+
 import { requireAuth } from "../middleware/requireAuth.js";
+import { requireRole } from "../middleware/requireRole.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+
 import {
+  getQueueStatus,
   joinQueue,
   leaveQueue,
-  getMatchStatus,
-  getMatch,
-  setPlayerReady,
-  getMatchmakingStats,
-  cancelMatch,
-  completeMatch,
+  getActiveMatches,
+  adminFlushQueue,
 } from "../controllers/matchmakingController.js";
 
-const router = Router();
+const router = express.Router();
 
-// All routes require authentication
-router.use(requireAuth);
+/**
+ * Public-ish: queue status (still safe, but you can require auth if you want)
+ */
+router.get(
+  "/status",
+  asyncHandler(getQueueStatus)
+);
 
-// Matchmaking queue operations
-router.post("/queue/join", joinQueue);
-router.post("/queue/leave", leaveQueue);
+/**
+ * Join matchmaking queue (auth required)
+ */
+router.post(
+  "/join",
+  requireAuth,
+  asyncHandler(joinQueue)
+);
 
-// Match operations
-router.get("/match/status", getMatchStatus);
-router.get("/match/:matchId", getMatch);
-router.post("/match/ready", setPlayerReady);
-router.post("/match/:matchId/complete", completeMatch);
+/**
+ * Leave matchmaking queue (auth required)
+ */
+router.post(
+  "/leave",
+  requireAuth,
+  asyncHandler(leaveQueue)
+);
 
-// Admin routes
-router.get("/admin/stats", getMatchmakingStats);
-router.post("/admin/match/:matchId/cancel", cancelMatch);
+/**
+ * Get active matches for current user (auth required)
+ */
+router.get(
+  "/active",
+  requireAuth,
+  asyncHandler(getActiveMatches)
+);
 
-// Health check
-router.get("/health", (_req, res) => {
-  res.json({
-    status: "ok",
-    service: "matchmaking",
-    timestamp: new Date().toISOString(),
-  });
-});
+/**
+ * Admin-only: flush queue (production safety)
+ */
+router.post(
+  "/admin/flush",
+  requireAuth,
+  requireRole("admin"),
+  asyncHandler(adminFlushQueue)
+);
 
 export default router;

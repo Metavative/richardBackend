@@ -1,152 +1,164 @@
+// src/routes/friendroutes.js
 import express from "express";
 import mongoose from "mongoose";
+import createError from "http-errors";
+
 import FriendRequest from "../models/FriendRequest.js";
 import { requireAuth } from "../middleware/requireAuth.js";
+import { requireRole } from "../middleware/requireRole.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 const router = express.Router();
 
-// If you want friends to be protected (recommended)
+// ✅ Auth required for all friend endpoints
 router.use(requireAuth);
 
 // TEST
-router.get("/test", (_req, res) =>
-  res.json({ message: "Friend routes working!" })
+router.get(
+  "/test",
+  asyncHandler(async (req, res) => {
+    return res.ok({ message: "Friend routes working!" });
+  })
 );
 
 // SEND REQUEST
-// POST /api/friends/send  { from, to }
-// (We will ignore "from" from client and use req.userId to prevent spoofing)
-router.post("/send", async (req, res) => {
-  try {
-    const from = req.userId; // ✅ secure source
-    const { to } = req.body;
+// POST /api/friends/send  { to }
+// NOTE: we ignore "from" from client and use req.userId to prevent spoofing
+router.post(
+  "/send",
+  asyncHandler(async (req, res) => {
+    const from = req.userId;
+    const to = req.body?.to?.toString?.().trim();
 
-    if (!from || !to) {
-      return res.status(400).json({ message: "from and to required" });
-    }
-
+    if (!to) throw createError(400, "to is required");
     if (!mongoose.Types.ObjectId.isValid(from) || !mongoose.Types.ObjectId.isValid(to)) {
-      return res.status(400).json({ message: "invalid user id(s)" });
+      throw createError(400, "Invalid user id(s)");
     }
-
-    if (from === to) {
-      return res.status(400).json({ message: "cannot friend yourself" });
-    }
+    if (from === to) throw createError(400, "Cannot friend yourself");
 
     // Block duplicates in BOTH directions for pending/accepted
     const existing = await FriendRequest.findOne({
-      $or: [
-        { from, to },
-        { from: to, to: from },
-      ],
+      $or: [{ from, to }, { from: to, to: from }],
       status: { $in: ["pending", "accepted"] },
     });
 
     if (existing) {
-      return res.status(400).json({
-        message: "request already exists or you're already friends",
-      });
+      const err = createError(409, "Request already exists or you are already friends");
+      err.code = "FRIEND_REQUEST_EXISTS";
+      throw err;
     }
 
-    const reqDoc = await FriendRequest.create({
-      from,
-      to,
-      status: "pending",
-    });
+    const doc = await FriendRequest.create({ from, to, status: "pending" });
 
-    res.status(201).json(reqDoc);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
+    return res.created({ request: doc });
+  })
+);
 
 // ACCEPT REQUEST
 // PATCH /api/friends/accept/:id
-router.patch("/accept/:id", async (req, res) => {
-  try {
-    const reqDoc = await FriendRequest.findById(req.params.id);
-    if (!reqDoc) {
-      return res.status(404).json({ message: "Request not found" });
+router.patch(
+  "/accept/:id",
+  asyncHandler(async (req, res) => {
+    const requestId = req.params.id;
+
+    if (!mongoose.Types.ObjectId.isValid(requestId)) {
+      throw createError(400, "Invalid request id");
     }
 
-    // Optional safety: only receiver can accept
-    if (reqDoc.to.toString() !== req.userId) {
-      return res.status(403).json({ message: "Forbidden" });
+    const doc = await FriendRequest.findById(requestId);
+    if (!doc) throw createError(404, "Request not found");
+
+    // ✅ only receiver can accept
+    if (doc.to.toString() !== req.userId) {
+      throw createError(403, "Forbidden");
     }
 
-    reqDoc.status = "accepted";
-    await reqDoc.save();
+    if (doc.status !== "pending") {
+      const err = createError(400, "Request is not pending");
+      err.code = "FRIEND_REQUEST_NOT_PENDING";
+      throw err;
+    }
 
-    res.json(reqDoc);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
+    doc.status = "accepted";
+    await doc.save();
+
+    return res.ok({ request: doc });
+  })
+);
 
 // REJECT REQUEST
 // PATCH /api/friends/reject/:id
-router.patch("/reject/:id", async (req, res) => {
-  try {
-    const reqDoc = await FriendRequest.findById(req.params.id);
-    if (!reqDoc) {
-      return res.status(404).json({ message: "Request not found" });
+router.patch(
+  "/reject/:id",
+  asyncHandler(async (req, res) => {
+    const requestId = req.params.id;
+
+    if (!mongoose.Types.ObjectId.isValid(requestId)) {
+      throw createError(400, "Invalid request id");
     }
 
-    // Optional safety: only receiver can reject
-    if (reqDoc.to.toString() !== req.userId) {
-      return res.status(403).json({ message: "Forbidden" });
+    const doc = await FriendRequest.findById(requestId);
+    if (!doc) throw createError(404, "Request not found");
+
+    // ✅ only receiver can reject
+    if (doc.to.toString() !== req.userId) {
+      throw createError(403, "Forbidden");
     }
 
-    reqDoc.status = "rejected";
-    await reqDoc.save();
+    if (doc.status !== "pending") {
+      const err = createError(400, "Request is not pending");
+      err.code = "FRIEND_REQUEST_NOT_PENDING";
+      throw err;
+    }
 
-    res.json(reqDoc);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
+    doc.status = "rejected";
+    await doc.save();
 
-// GET MY REQUESTS (PRODUCTION)
+    return res.ok({ request: doc });
+  })
+);
+
+// GET MY REQUESTS
 // GET /api/friends/mine/:userId
-router.get("/mine/:userId", async (req, res) => {
-  try {
+router.get(
+  "/mine/:userId",
+  asyncHandler(async (req, res) => {
     const { userId } = req.params;
 
-    // ✅ enforce user can only fetch their own data
-    if (userId !== req.userId) {
-      return res.status(403).json({ message: "Forbidden" });
+    // ✅ enforce user can only fetch their own data (unless admin)
+    const isAdmin = req.user?.role === "admin";
+    if (!isAdmin && userId !== req.userId) {
+      throw createError(403, "Forbidden");
     }
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(400).json({ message: "invalid user id" });
+      throw createError(400, "Invalid user id");
     }
 
     const list = await FriendRequest.find({
       $or: [{ from: userId }, { to: userId }],
     })
-      .populate("from", "username name")
-      .populate("to", "username name")
+      .populate("from", "username name profilePic")
+      .populate("to", "username name profilePic")
       .sort({ createdAt: -1 });
 
-    res.json(list);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
+    return res.ok({ requests: list });
+  })
+);
 
-// GET ALL REQUESTS (ADMIN/DEBUG)
+// GET ALL REQUESTS (ADMIN ONLY)
 // GET /api/friends/all
-router.get("/all", async (_req, res) => {
-  try {
+router.get(
+  "/all",
+  requireRole("admin"),
+  asyncHandler(async (_req, res) => {
     const list = await FriendRequest.find()
-      .populate("from", "username name")
-      .populate("to", "username name")
+      .populate("from", "username name profilePic")
+      .populate("to", "username name profilePic")
       .sort({ createdAt: -1 });
 
-    res.json(list);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
+    return res.ok({ requests: list });
+  })
+);
 
 export default router;

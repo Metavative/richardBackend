@@ -1,64 +1,51 @@
 // src/sockets/socketAuth.js
-import { verifyAccessToken } from "../utils/generateTokens.js";
+import jwt from "jsonwebtoken";
+import { env } from "../config/env.js";
+import User from "../models/User.js";
 
 /**
- * Extract a bearer token from Socket.IO handshake.
- *
- * Supported:
- * - socket.handshake.auth.token
- * - Authorization: Bearer <token>
- * - x-access-token: <token>
+ * Socket auth:
+ * - Reads token from socket.handshake.auth.token
+ * - Verifies JWT_ACCESS_SECRET
+ * - Attaches socket.data.user = { userId, role, email }
+ * - If missing/invalid token => guest socket (still connected, but limited features)
  */
-function extractToken(socket) {
-  const authToken = socket.handshake?.auth?.token;
-  if (authToken && String(authToken).trim()) return String(authToken).trim();
-
-  const headers = socket.handshake?.headers || {};
-  const rawAuth = headers.authorization || headers.Authorization;
-  if (rawAuth && typeof rawAuth === "string") {
-    const v = rawAuth.trim();
-    if (v.toLowerCase().startsWith("bearer ")) {
-      return v.slice(7).trim();
-    }
-    // If someone sends the token directly in Authorization
-    if (v.length > 20) return v;
-  }
-
-  const xToken = headers["x-access-token"] || headers["x-access-token".toUpperCase()];
-  if (xToken && typeof xToken === "string" && xToken.trim()) return xToken.trim();
-
-  return null;
-}
-
-/**
- * Attaches an io middleware that tries to authenticate sockets.
- *
- * IMPORTANT: This is intentionally non-blocking to avoid breaking existing
- * connections while we incrementally roll out realtime features.
- *
- * Authenticated sockets get:
- * - socket.userId
- * - socket.userEmail
- */
-export function attachSocketAuth(io) {
-  io.use((socket, next) => {
+export function socketAuth() {
+  return async (socket, next) => {
     try {
-      const token = extractToken(socket);
-      if (!token) return next();
+      const token =
+        socket.handshake?.auth?.token ||
+        socket.handshake?.headers?.authorization?.replace("Bearer ", "") ||
+        socket.handshake?.query?.token;
 
-      const payload = verifyAccessToken(token);
-      const userId = payload?.sub ? String(payload.sub) : null;
-
-      if (userId) {
-        socket.userId = userId;
-        socket.userEmail = payload?.email ? String(payload.email) : undefined;
+      if (!token) {
+        socket.data.user = { userId: null, role: "guest", email: null };
+        return next();
       }
+
+      const payload = jwt.verify(token, env.JWT_ACCESS_SECRET);
+
+      // payload uses { sub } in your backend
+      const userId = payload?.sub?.toString?.() || null;
+      let role = payload?.role || null;
+      const email = payload?.email || null;
+
+      if (userId && !role) {
+        const u = await User.findById(userId).select("role email").lean();
+        role = u?.role || "unassigned";
+      }
+
+      socket.data.user = {
+        userId,
+        role: role || "unassigned",
+        email,
+      };
 
       return next();
     } catch (err) {
-      // Non-blocking: allow connection but without userId.
-      // Consumers (presence/challenges...) will require auth per event.
+      // Treat invalid token as guest so app still works and can show errors gracefully
+      socket.data.user = { userId: null, role: "guest", email: null };
       return next();
     }
-  });
+  };
 }

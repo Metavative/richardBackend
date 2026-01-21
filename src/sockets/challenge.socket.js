@@ -1,301 +1,162 @@
 // src/sockets/challenge.socket.js
+import createError from "http-errors";
+import Match from "../models/Match.js";
 import User from "../models/User.js";
-import { isOnline, getUser as getPresenceUser, setStatus } from "../stores/presence.store.js";
-import { createChallenge, getChallenge, updateChallengeStatus, sweepExpired } from "../stores/challenge.store.js";
-import { createMatch } from "../stores/checkersMatch.store.js";
+import { challengeStore } from "../stores/challenge.store.js";
 
-export const ChallengeEvents = {
-  send: "challenge:send",
-  cancel: "challenge:cancel",
-  respond: "challenge:respond",
-
-  sent: "challenge:sent",
-  incoming: "challenge:incoming",
-  update: "challenge:update",
-  error: "challenge:error",
-
-  matchCreated: "match:created",
-};
-
-function ensureAuthed(socket) {
-  const uid = socket.userId ? String(socket.userId).trim() : "";
-  return uid.length ? uid : null;
-}
-
-function safeProfileFromUser(user) {
-  if (!user) return undefined;
-  return {
-    id: user._id?.toString?.() || undefined,
-    name: user.name || undefined,
-    email: user.email || undefined,
-    avatarUrl: user.profile_picture?.url || undefined,
-  };
-}
-
-async function loadProfile(userId) {
-  try {
-    const u = await User.findById(userId).select("name email profile_picture.url");
-    return safeProfileFromUser(u);
-  } catch {
-    return undefined;
-  }
-}
-
-// Sweep expired challenges and notify both sides
-let _sweeperStarted = false;
-function startSweeper(io) {
-  if (_sweeperStarted) return;
-  _sweeperStarted = true;
-
-  setInterval(() => {
-    const expired = sweepExpired();
-    for (const ch of expired) {
-      io.to(`user:${ch.fromUserId}`).emit(ChallengeEvents.update, {
-        challengeId: ch.challengeId,
-        status: "expired",
-        ts: Date.now(),
-      });
-      io.to(`user:${ch.toUserId}`).emit(ChallengeEvents.update, {
-        challengeId: ch.challengeId,
-        status: "expired",
-        ts: Date.now(),
-      });
-    }
-  }, 2000);
-}
-
-export function registerChallengeSockets(io) {
-  startSweeper(io);
-
+/**
+ * Socket events:
+ * - challenge:send    { toUserId }                (ack)
+ * - challenge:accept  { challengeId }             (ack -> returns matchId)
+ * - challenge:decline { challengeId }             (ack)
+ *
+ * Emits:
+ * - challenge:incoming   { challenge }
+ * - challenge:updated    { challenge }
+ * - challenge:match_ready{ matchId, match, challenge }
+ */
+export function bindChallengeSockets(io, { matchmakingService } = {}) {
   io.on("connection", (socket) => {
-    const uid = ensureAuthed(socket);
-    if (uid) socket.join(`user:${uid}`);
+    const myUserId = socket?.data?.user?.userId || null;
 
-    socket.on(ChallengeEvents.send, async (payload = {}) => {
-      const fromUserId = ensureAuthed(socket);
-      if (!fromUserId) {
-        socket.emit(ChallengeEvents.error, {
-          code: "UNAUTHENTICATED",
-          message: "Missing/invalid socket token",
-          ts: Date.now(),
-        });
-        return;
-      }
+    const ackOk = (ack, data = {}) => {
+      if (typeof ack === "function") ack({ ok: true, ...data });
+    };
 
-      const toUserId = String(payload?.toUserId || "").trim();
-      const game = String(payload?.game || "checkers").trim() || "checkers";
+    const ackErr = (ack, err, fallbackCode, fallbackMessage) => {
+      if (typeof ack !== "function") return;
 
-      if (!toUserId) {
-        socket.emit(ChallengeEvents.error, { code: "BAD_PAYLOAD", message: "toUserId required", ts: Date.now() });
-        return;
-      }
-      if (toUserId === fromUserId) {
-        socket.emit(ChallengeEvents.error, { code: "BAD_TARGET", message: "Cannot challenge yourself", ts: Date.now() });
-        return;
-      }
+      const status = err?.status || err?.statusCode || 500;
+      const code =
+        err?.code ||
+        (status === 401
+          ? "UNAUTHORIZED"
+          : status === 403
+            ? "FORBIDDEN"
+            : status === 404
+              ? "NOT_FOUND"
+              : fallbackCode || "SOCKET_ERROR");
 
-      // must be online
-      if (!isOnline(toUserId)) {
-        socket.emit(ChallengeEvents.error, { code: "USER_OFFLINE", message: "User is offline", ts: Date.now() });
-        return;
-      }
-
-      // basic availability gate
-      const p = getPresenceUser(toUserId);
-      if (p?.status && p.status !== "available") {
-        socket.emit(ChallengeEvents.error, { code: "USER_BUSY", message: "User is not available", ts: Date.now() });
-        return;
-      }
-
-      const { challenge, reused } = createChallenge({
-        fromUserId,
-        toUserId,
-        game,
-        ttlMs: 45000,
-        meta: {
-          blockersEnabled: payload?.blockersEnabled ?? true,
-          boardDifficultyKey: payload?.boardDifficultyKey ?? "advanced",
-          aiDifficultyKey: payload?.aiDifficultyKey ?? "easy",
+      ack({
+        ok: false,
+        error: {
+          code,
+          message: err?.message || fallbackMessage || "Something went wrong",
         },
       });
+    };
 
-      // Notify sender
-      socket.emit(ChallengeEvents.sent, {
-        challengeId: challenge.challengeId,
-        toUserId,
-        game,
-        expiresAt: challenge.expiresAt,
-        reused,
-        ts: Date.now(),
-      });
+    socket.on("challenge:send", async (payload, ack) => {
+      try {
+        if (!myUserId) throw createError(401, "Authentication required");
 
-      // Notify target
-      const fromProfile = await loadProfile(fromUserId);
-      io.to(`user:${toUserId}`).emit(ChallengeEvents.incoming, {
-        challengeId: challenge.challengeId,
-        fromUserId,
-        fromProfile,
-        game,
-        expiresAt: challenge.expiresAt,
-        meta: challenge.meta,
-        ts: Date.now(),
-      });
+        const toUserId = payload?.toUserId?.toString?.().trim();
+        if (!toUserId) throw createError(400, "Missing toUserId");
+        if (toUserId === myUserId) throw createError(400, "Cannot challenge yourself");
+
+        // Validate target exists
+        const target = await User.findById(toUserId).select("_id").lean();
+        if (!target) throw createError(404, "Target user not found");
+
+        // Create challenge
+        const challenge = challengeStore.create({ fromUserId: myUserId, toUserId });
+
+        // Notify opponent (user room)
+        io.to(`user:${toUserId}`).emit("challenge:incoming", { challenge });
+
+        ackOk(ack, { challenge });
+      } catch (err) {
+        ackErr(ack, err, "CHALLENGE_SEND_FAILED", "Failed to send challenge");
+      }
     });
 
-    socket.on(ChallengeEvents.cancel, (payload = {}) => {
-      const fromUserId = ensureAuthed(socket);
-      if (!fromUserId) {
-        socket.emit(ChallengeEvents.error, { code: "UNAUTHENTICATED", message: "Missing/invalid token", ts: Date.now() });
-        return;
-      }
+    socket.on("challenge:decline", async (payload, ack) => {
+      try {
+        if (!myUserId) throw createError(401, "Authentication required");
 
-      const challengeId = String(payload?.challengeId || "").trim();
-      if (!challengeId) {
-        socket.emit(ChallengeEvents.error, { code: "BAD_PAYLOAD", message: "challengeId required", ts: Date.now() });
-        return;
-      }
+        const challengeId = payload?.challengeId?.toString?.().trim();
+        if (!challengeId) throw createError(400, "Missing challengeId");
 
-      const ch = getChallenge(challengeId);
-      if (!ch) {
-        socket.emit(ChallengeEvents.error, { code: "NOT_FOUND", message: "Challenge not found", ts: Date.now() });
-        return;
-      }
-      if (ch.status !== "pending") {
-        socket.emit(ChallengeEvents.error, { code: "NOT_PENDING", message: "Challenge is not pending", ts: Date.now() });
-        return;
-      }
-      if (ch.fromUserId !== fromUserId) {
-        socket.emit(ChallengeEvents.error, { code: "FORBIDDEN", message: "Only sender can cancel", ts: Date.now() });
-        return;
-      }
+        const c = challengeStore.get(challengeId);
+        if (!c) throw createError(404, "Challenge not found");
 
-      updateChallengeStatus(challengeId, "cancelled");
+        if (c.toUserId !== myUserId) throw createError(403, "Not your challenge");
+        if (c.status !== "pending") throw createError(400, "Challenge is not pending");
 
-      io.to(`user:${ch.fromUserId}`).emit(ChallengeEvents.update, {
-        challengeId,
-        status: "cancelled",
-        ts: Date.now(),
-      });
-      io.to(`user:${ch.toUserId}`).emit(ChallengeEvents.update, {
-        challengeId,
-        status: "cancelled",
-        ts: Date.now(),
-      });
+        const updated = challengeStore.updateStatus(challengeId, "declined");
+
+        io.to(`user:${c.fromUserId}`).emit("challenge:updated", { challenge: updated });
+        io.to(`user:${c.toUserId}`).emit("challenge:updated", { challenge: updated });
+
+        ackOk(ack, { challenge: updated });
+      } catch (err) {
+        ackErr(ack, err, "CHALLENGE_DECLINE_FAILED", "Failed to decline challenge");
+      }
     });
 
-    socket.on(ChallengeEvents.respond, async (payload = {}) => {
-      const toUserId = ensureAuthed(socket);
-      if (!toUserId) {
-        socket.emit(ChallengeEvents.error, { code: "UNAUTHENTICATED", message: "Missing/invalid token", ts: Date.now() });
-        return;
-      }
+    socket.on("challenge:accept", async (payload, ack) => {
+      try {
+        if (!myUserId) throw createError(401, "Authentication required");
 
-      const challengeId = String(payload?.challengeId || "").trim();
-      const action = String(payload?.action || "").trim().toLowerCase(); // accept|decline
+        const challengeId = payload?.challengeId?.toString?.().trim();
+        if (!challengeId) throw createError(400, "Missing challengeId");
 
-      if (!challengeId || !["accept", "decline"].includes(action)) {
-        socket.emit(ChallengeEvents.error, { code: "BAD_PAYLOAD", message: "challengeId + action required", ts: Date.now() });
-        return;
-      }
+        const c = challengeStore.get(challengeId);
+        if (!c) throw createError(404, "Challenge not found");
 
-      const ch = getChallenge(challengeId);
-      if (!ch) {
-        socket.emit(ChallengeEvents.error, { code: "NOT_FOUND", message: "Challenge not found", ts: Date.now() });
-        return;
-      }
+        if (c.toUserId !== myUserId) throw createError(403, "Not your challenge");
+        if (c.status !== "pending") throw createError(400, "Challenge is not pending");
 
-      // Only recipient can respond
-      if (ch.toUserId !== toUserId) {
-        socket.emit(ChallengeEvents.error, { code: "FORBIDDEN", message: "Only recipient can respond", ts: Date.now() });
-        return;
-      }
+        const updated = challengeStore.updateStatus(challengeId, "accepted");
 
-      // Must be pending and not expired
-      if (ch.status !== "pending") {
-        socket.emit(ChallengeEvents.error, { code: "NOT_PENDING", message: `Challenge is ${ch.status}`, ts: Date.now() });
-        return;
-      }
-      if (ch.expiresAt <= Date.now()) {
-        updateChallengeStatus(challengeId, "expired");
-        socket.emit(ChallengeEvents.error, { code: "EXPIRED", message: "Challenge expired", ts: Date.now() });
-        return;
-      }
-
-      if (action === "decline") {
-        updateChallengeStatus(challengeId, "declined");
-
-        io.to(`user:${ch.fromUserId}`).emit(ChallengeEvents.update, {
-          challengeId,
-          status: "declined",
-          ts: Date.now(),
+        // Create match in DB so both devices share a stable matchId
+        const match = await Match.create({
+          gameMode: "1v1",
+          region: "global",
+          status: "pending",
+          players: [
+            { userId: c.fromUserId, team: "red", connected: true, ready: true },
+            { userId: c.toUserId, team: "blue", connected: true, ready: true },
+          ],
+          settings: {
+            maxPlayers: 2,
+            duration: 600,
+            isRanked: false,
+            allowSpectators: false,
+          },
         });
-        io.to(`user:${ch.toUserId}`).emit(ChallengeEvents.update, {
-          challengeId,
-          status: "declined",
-          ts: Date.now(),
+
+        const matchId = match.matchId || match._id?.toString?.();
+
+        // Optional: hook into matchmaking service if you want it to manage match rooms
+        // (safe no-op if matchmakingService is not passed or doesn't support it)
+        try {
+          if (matchmakingService?.onChallengeAccepted) {
+            await matchmakingService.onChallengeAccepted({
+              matchId,
+              fromUserId: c.fromUserId,
+              toUserId: c.toUserId,
+            });
+          }
+        } catch (_ignored) {
+          // intentionally ignore so match creation doesn’t fail
+        }
+
+        io.to(`user:${c.fromUserId}`).emit("challenge:match_ready", {
+          matchId,
+          match,
+          challenge: updated,
         });
-        return;
+        io.to(`user:${c.toUserId}`).emit("challenge:match_ready", {
+          matchId,
+          match,
+          challenge: updated,
+        });
+
+        ackOk(ack, { matchId, match, challenge: updated });
+      } catch (err) {
+        ackErr(ack, err, "CHALLENGE_ACCEPT_FAILED", "Failed to accept challenge");
       }
-
-      // Accept
-      updateChallengeStatus(challengeId, "accepted");
-
-      // Mark both in_game
-      setStatus({ userId: ch.fromUserId, status: "in_game" });
-      setStatus({ userId: ch.toUserId, status: "in_game" });
-
-      // Create a checkers match (authoritative state)
-      const blockersEnabled = ch.meta?.blockersEnabled ?? true;
-      const boardDifficultyKey = ch.meta?.boardDifficultyKey ?? "advanced";
-      const aiDifficultyKey = ch.meta?.aiDifficultyKey ?? "easy";
-
-      const match = createMatch({
-        playerOneId: ch.fromUserId,
-        playerTwoId: ch.toUserId,
-        blockersEnabled,
-        boardDifficultyKey,
-        aiDifficultyKey,
-      });
-
-      const p1Profile = await loadProfile(match.playerOneId);
-      const p2Profile = await loadProfile(match.playerTwoId);
-
-      const matchData = {
-        matchId: match.matchId,
-        players: [
-          { userId: match.playerOneId, profile: p1Profile },
-          { userId: match.playerTwoId, profile: p2Profile },
-        ],
-        boardDifficultyKey,
-        aiDifficultyKey,
-        blockersEnabled,
-      };
-
-      // Notify challenge resolution
-      io.to(`user:${ch.fromUserId}`).emit(ChallengeEvents.update, {
-        challengeId,
-        status: "accepted",
-        matchId: match.matchId,
-        ts: Date.now(),
-      });
-      io.to(`user:${ch.toUserId}`).emit(ChallengeEvents.update, {
-        challengeId,
-        status: "accepted",
-        matchId: match.matchId,
-        ts: Date.now(),
-      });
-
-      // Send match:created to both users
-      io.to(`user:${ch.fromUserId}`).emit(ChallengeEvents.matchCreated, {
-        matchId: match.matchId,
-        matchData,
-        ts: Date.now(),
-      });
-      io.to(`user:${ch.toUserId}`).emit(ChallengeEvents.matchCreated, {
-        matchId: match.matchId,
-        matchData,
-        ts: Date.now(),
-      });
     });
   });
 }

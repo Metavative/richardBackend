@@ -1,55 +1,39 @@
-// import multer from "multer";
-// import path from "path";
-// import fs from "fs";
-
-// const uploadDir = "uploads/profilePics";
-// if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-
-// const storage = multer.diskStorage({
-//   destination: (req, file, cb) => cb(null, uploadDir),
-//   filename: (req, file, cb) => cb(null, Date.now() + path.extname(file.originalname)),
-// });
-
-// const fileFilter = (req, file, cb) => {
-//   const allowedTypes = /jpeg|jpg|png|gif/;
-//   if (allowedTypes.test(path.extname(file.originalname).toLowerCase())) {
-//     cb(null, true);
-//   } else {
-//     cb(new Error("Only image files are allowed"));
-//   }
-// };
-
-// export const upload = multer({ storage, fileFilter });
-
+// src/middleware/upload.js
 import multer from "multer";
 import path from "path";
 import fs from "fs";
 
-const uploadDir = "uploads/profilePics";
+const UPLOAD_DIR = "uploads";
 
-// ensure folder exists
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+// Ensure uploads folder exists
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, uploadDir);
+    cb(null, UPLOAD_DIR);
   },
   filename: (req, file, cb) => {
-    cb(null, Date.now() + path.extname(file.originalname));
+    const ext = path.extname(file.originalname || "").toLowerCase();
+    const safeExt = ext || ".jpg";
+    const unique = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+    cb(null, `${unique}${safeExt}`);
   },
 });
 
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|gif/;
-  const ext = path.extname(file.originalname).toLowerCase();
-
-  if (allowedTypes.test(ext)) {
-    cb(null, true);
-  } else {
-    cb(new Error("Only image files are allowed"), false);
+function fileFilter(_req, file, cb) {
+  const allowed = ["image/jpeg", "image/png", "image/webp"];
+  if (!allowed.includes(file.mimetype)) {
+    return cb(new Error("Only JPG, PNG, and WEBP images are allowed"));
   }
-};
+  cb(null, true);
+}
 
-export const upload = multer({ storage, fileFilter });
+export const upload = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB
+  },
+});

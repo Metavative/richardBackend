@@ -1,3 +1,4 @@
+// src/server.js
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
@@ -13,23 +14,43 @@ import { connectDB } from "./config/db.js";
 import routes from "./routes/index.js";
 import { initializeMatchmaking } from "./controllers/matchmakingController.js";
 import { initSockets } from "./sockets/index.js";
-import { registerPresenceSockets } from "./sockets/presence.socket.js";
+import { errorHandler, notFound } from "./middleware/error.middleware.js";
+import { requestIdMiddleware } from "./middleware/requestId.middleware.js";
 
 const app = express();
 
+// Behind Railway / reverse proxies
+app.set("trust proxy", 1);
+
 // ---------- MIDDLEWARE ----------
-const allowedOrigins = new Set([
-  "http://localhost:3000",
-  "http://localhost",
-  "http://10.0.2.2",
-  "http://127.0.0.1:3000",
-]);
+const allowedOrigins = new Set(
+  [
+    env.CLIENT_URL,
+    // Local dev / emulators
+    "http://localhost:3000",
+    "http://localhost",
+    "http://10.0.2.2",
+    "http://127.0.0.1:3000",
+    // Optional comma-separated allowlist
+    ...(String(process.env.ALLOWED_ORIGINS || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean)),
+  ].filter(Boolean)
+);
 
 app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
       if (allowedOrigins.has(origin)) return callback(null, true);
+
+      // In production, reject unknown origins
+      if (env.NODE_ENV === "production") {
+        return callback(new Error("CORS: Origin not allowed"));
+      }
+
+      // In development, allow for convenience
       return callback(null, true);
     },
     credentials: true,
@@ -41,21 +62,18 @@ app.use(morgan("dev"));
 app.use(express.json());
 app.use(cookieParser());
 
+// Attach X-Request-Id for logging + client debugging
+app.use(requestIdMiddleware);
+
 // Static uploads
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
-// Request logging
-app.use((req, _res, next) => {
-  console.log(`ℹ ${new Date().toISOString()} ${req.method} ${req.url}`);
-  next();
-});
-
 // ---------- ROUTES ----------
 app.use("/api", routes);
 
-app.get("/api/test", (req, res) => {
+app.get("/api/test", (_req, res) => {
   console.log("✅ /api/test hit");
   res.json({
     status: "success",
@@ -64,7 +82,7 @@ app.get("/api/test", (req, res) => {
   });
 });
 
-app.get("/health-check", (req, res) => {
+app.get("/health-check", (_req, res) => {
   res.json({
     status: "healthy",
     service: "LA-TREL Backend",
@@ -73,78 +91,32 @@ app.get("/health-check", (req, res) => {
   });
 });
 
-// ---------- ERROR HANDLER (MUST BE BEFORE 404) ----------
-app.use((err, req, res, _next) => {
-  const status = err.status || err.statusCode || 500;
-
-  console.error("❌ Server Error:", {
-    status,
-    message: err.message,
-    stack: err.stack,
-    details: err.errors || err.detail || null,
-    path: req.originalUrl,
-    method: req.method,
-  });
-
-  // Mongo duplicate key (email/username unique)
-  if (err?.code === 11000) {
-    const field = Object.keys(err.keyValue || {})[0] || "field";
-    return res.status(409).json({
-      message: `${field} already exists`,
-      field,
-    });
-  }
-
-  // Mongoose validation
-  if (err?.name === "ValidationError") {
-    const errors = Object.values(err.errors || {}).map((e) => e.message);
-    return res.status(400).json({
-      message: "Validation failed",
-      errors,
-    });
-  }
-
-  // Default (return REAL message)
-  const payload = {
-    message: err.message || "Server Error",
-  };
-
-  // Helpful debugging in non-production
-  if (env.NODE_ENV !== "production") {
-    payload.stack = err.stack;
-    payload.details = err.errors || null;
-  }
-
-  return res.status(status).json(payload);
-});
-
-// ---------- 404 HANDLER (LAST) ----------
-app.use((req, res) => {
-  console.log(`❌ 404 - Route not found: ${req.method} ${req.url}`);
-  res.status(404).json({
-    message: "Route not found",
-    path: req.url,
-    method: req.method,
-  });
-});
+// ---------- 404 + ERROR HANDLERS (LAST) ----------
+app.use(notFound);
+app.use(errorHandler);
 
 // ---------- HTTP SERVER & SOCKET.IO ----------
 const server = http.createServer(app);
 
 export const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] },
+  cors: {
+    origin: (origin, callback) => {
+      // socket.io may pass undefined for same-origin / native clients
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.has(origin)) return callback(null, true);
+      if (env.NODE_ENV === "production") return callback(new Error("CORS"));
+      return callback(null, true);
+    },
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
 });
 
-// Initialize matchmaking service with io (existing)
-initializeMatchmaking(io);
+// ✅ Keep your existing matchmaking
+const matchmakingService = initializeMatchmaking(io);
 
-// Initialize realtime sockets (Step 1 = presence)
-initSockets(io);
-
-io.on("connection", (socket) => {
-  console.log("� USER CONNECTED:", socket.id);
-  socket.on("disconnect", () => console.log("� USER DISCONNECTED:", socket.id));
-});
+// ✅ Add all realtime systems (presence + challenges + checkers)
+initSockets(io, { matchmakingService });
 
 // ---------- START ----------
 try {

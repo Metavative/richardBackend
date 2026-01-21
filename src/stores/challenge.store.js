@@ -1,118 +1,74 @@
 // src/stores/challenge.store.js
+import crypto from "crypto";
 
 /**
- * In-memory challenges store (single instance).
- * If you scale to multi-instances later, move this to Redis or Mongo with TTL.
+ * In-memory challenges:
+ * challengeId -> {
+ *   id, fromUserId, toUserId, status, createdAt, expiresAt
+ * }
+ *
+ * status: "pending" | "accepted" | "declined" | "cancelled"
  */
+class ChallengeStore {
+  constructor() {
+    this.map = new Map();
+    this.ttlMs = Number(process.env.CHALLENGE_TTL_MS) || 2 * 60 * 1000;
 
-function now() {
-    return Date.now();
+    // Cleanup expired challenges every minute (unref so it won't keep process alive)
+    const interval = setInterval(() => this.cleanup(), 60 * 1000);
+    interval.unref?.();
   }
-  
-  function makeId() {
-    return `ch_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-  }
-  
-  /**
-   * @typedef {"pending"|"accepted"|"declined"|"cancelled"|"expired"} ChallengeStatus
-   */
-  
-  /**
-   * @typedef Challenge
-   * @property {string} challengeId
-   * @property {string} fromUserId
-   * @property {string} toUserId
-   * @property {string} game
-   * @property {ChallengeStatus} status
-   * @property {number} createdAt
-   * @property {number} expiresAt
-   * @property {object} meta
-   */
-  
-  const challengesById = new Map(); // challengeId -> Challenge
-  
-  // Prevent spam: one active pending per pair+game
-  const pendingKeyIndex = new Map(); // `${from}:${to}:${game}` -> challengeId
-  
-  export function createChallenge({
-    fromUserId,
-    toUserId,
-    game = "checkers",
-    ttlMs = 45000,
-    meta = {},
-  }) {
-    const k = `${fromUserId}:${toUserId}:${game}`;
-    const existingId = pendingKeyIndex.get(k);
-    if (existingId) {
-      const existing = challengesById.get(existingId);
-      if (existing && existing.status === "pending" && existing.expiresAt > now()) {
-        return { challenge: existing, reused: true };
-      }
-      pendingKeyIndex.delete(k);
-    }
-  
-    const challengeId = makeId();
-    const createdAt = now();
-    const expiresAt = createdAt + ttlMs;
-  
-    const ch = {
-      challengeId,
+
+  create({ fromUserId, toUserId }) {
+    const id = crypto.randomBytes(10).toString("hex");
+    const now = Date.now();
+
+    const challenge = {
+      id,
       fromUserId,
       toUserId,
-      game,
       status: "pending",
-      createdAt,
-      expiresAt,
-      meta,
+      createdAt: now,
+      expiresAt: now + this.ttlMs,
     };
-  
-    challengesById.set(challengeId, ch);
-    pendingKeyIndex.set(k, challengeId);
-  
-    return { challenge: ch, reused: false };
+
+    this.map.set(id, challenge);
+    return challenge;
   }
-  
-  export function getChallenge(challengeId) {
-    return challengesById.get(challengeId) || null;
-  }
-  
-  export function updateChallengeStatus(challengeId, status) {
-    const ch = challengesById.get(challengeId);
-    if (!ch) return null;
-  
-    ch.status = status;
-  
-    // Clean pending index if leaving pending
-    if (status !== "pending") {
-      const k = `${ch.fromUserId}:${ch.toUserId}:${ch.game}`;
-      if (pendingKeyIndex.get(k) === challengeId) pendingKeyIndex.delete(k);
+
+  get(id) {
+    const c = this.map.get(id) || null;
+    if (!c) return null;
+
+    if (c.expiresAt && c.expiresAt < Date.now()) {
+      this.map.delete(id);
+      return null;
     }
-  
-    return ch;
+
+    return c;
   }
-  
-  export function cancelChallenge(challengeId) {
-    return updateChallengeStatus(challengeId, "cancelled");
+
+  updateStatus(id, status) {
+    const c = this.get(id);
+    if (!c) return null;
+
+    c.status = status;
+    this.map.set(id, c);
+    return c;
   }
-  
-  export function expireChallenge(challengeId) {
-    return updateChallengeStatus(challengeId, "expired");
+
+  delete(id) {
+    this.map.delete(id);
   }
-  
-  export function sweepExpired() {
-    const t = now();
-    const expired = [];
-  
-    for (const [id, ch] of challengesById.entries()) {
-      if (ch.status === "pending" && ch.expiresAt <= t) {
-        ch.status = "expired";
-        expired.push(ch);
-  
-        const k = `${ch.fromUserId}:${ch.toUserId}:${ch.game}`;
-        if (pendingKeyIndex.get(k) === id) pendingKeyIndex.delete(k);
+
+  cleanup() {
+    const now = Date.now();
+    for (const [id, c] of this.map.entries()) {
+      if (c?.expiresAt && c.expiresAt < now) {
+        this.map.delete(id);
       }
     }
-  
-    return expired;
   }
-  
+}
+
+export const challengeStore = new ChallengeStore();

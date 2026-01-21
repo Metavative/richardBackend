@@ -1,50 +1,58 @@
-import jwt from "jsonwebtoken";
-import { env } from "../config/env.js";
+// src/middleware/requireAuth.js
+import createError from "http-errors";
+import { verifyAccessToken } from "../services/token.service.js";
+import User from "../models/User.js";
 
-export const requireAuth = (req, res, next) => {
-  // Prefer Authorization header, but allow cookie fallback for web
-  const authHeader = req.headers.authorization;
-  const cookieToken = req.cookies?.accessToken;
-
-  let token = null;
-
-  if (authHeader && authHeader.startsWith("Bearer ")) {
-    token = authHeader.split(" ")[1];
-  } else if (cookieToken) {
-    token = cookieToken;
-  }
-
-  if (!token) {
-    return res.status(401).json({ message: "Unauthorized: No token" });
-  }
-
+/**
+ * REST authentication middleware.
+ *
+ * - Accepts Bearer token OR cookie token
+ * - Verifies JWT
+ * - Loads user from DB
+ * - Blocks deleted / disabled users
+ * - Attaches req.user + req.userId
+ */
+export async function requireAuth(req, _res, next) {
   try {
-    const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET);
+    const authHeader = req.headers.authorization;
+    const bearer =
+      authHeader && authHeader.startsWith("Bearer ")
+        ? authHeader.slice(7)
+        : null;
 
-    // You use `sub` for userId in token payload
-    const userId = decoded?.sub?.toString();
-    if (!userId) {
-      return res
-        .status(401)
-        .json({ message: "Unauthorized: Invalid token payload" });
+    const token =
+      bearer ||
+      req.cookies?.accessToken ||
+      req.cookies?.token ||
+      null;
+
+    if (!token) {
+      throw createError(401, "Authentication required");
     }
 
-    // Keep the full decoded token for flexibility
-    req.user = decoded;
+    const payload = verifyAccessToken(token);
 
-    // Add normalized fields commonly used in controllers
-    req.userId = userId;
+    const user = await User.findById(payload.userId).select(
+      "_id role status emailVerified"
+    );
+
+    if (!user) {
+      throw createError(401, "User not found");
+    }
+
+    if (user.status === "blocked") {
+      throw createError(403, "Account is blocked");
+    }
+
+    req.userId = user._id.toString();
+    req.user = {
+      id: req.userId,
+      role: user.role,
+      emailVerified: user.emailVerified,
+    };
 
     next();
   } catch (err) {
-    if (err?.name === "TokenExpiredError") {
-      return res.status(401).json({ message: "Token expired" });
-    }
-    if (err?.name === "JsonWebTokenError") {
-      return res.status(401).json({ message: "Invalid token" });
-    }
-
-    console.error("JWT verify error:", err);
-    return res.status(401).json({ message: "Unauthorized" });
+    next(err);
   }
-};
+}

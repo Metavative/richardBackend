@@ -1,32 +1,35 @@
+// src/models/FriendRequest.js
 import mongoose from "mongoose";
-const { Schema } = mongoose;
 
-const FriendRequestSchema = new Schema(
+const friendRequestSchema = new mongoose.Schema(
   {
-    from: { type: Schema.Types.ObjectId, ref: "User", required: true },
-    to: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    from: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
+    to: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+      index: true,
+    },
     status: {
       type: String,
       enum: ["pending", "accepted", "rejected"],
       default: "pending",
+      index: true,
     },
   },
   { timestamps: true }
 );
 
-/**
- * Indexes for production performance (no breaking changes)
- * - Prevents slow scans as data grows
- * - Supports typical queries:
- *   - outgoing pending: { from, status }
- *   - incoming pending: { to, status }
- *   - recent feed: { status, createdAt }
- *   - duplicate checks: { from, to }
- */
-FriendRequestSchema.index({ from: 1, to: 1 });
-FriendRequestSchema.index({ to: 1, status: 1, createdAt: -1 });
-FriendRequestSchema.index({ from: 1, status: 1, createdAt: -1 });
-FriendRequestSchema.index({ status: 1, createdAt: -1 });
+// Prevent duplicates for the same direction while pending/accepted
+friendRequestSchema.index(
+  { from: 1, to: 1, status: 1 },
+  { unique: true, partialFilterExpression: { status: { $in: ["pending", "accepted"] } } }
+);
 
-export default mongoose.models.FriendRequest ||
-  mongoose.model("FriendRequest", FriendRequestSchema);
+export const FriendRequest = mongoose.model("FriendRequest", friendRequestSchema);
+export default FriendRequest;
