@@ -57,12 +57,13 @@ router.post(
 
 // ----------------------
 // VERIFY EMAIL OTP
+// Controller expects: { uid, code }
 // ----------------------
 router.post(
   "/verify-email",
   authLimiter,
   [
-    body("email").isEmail().withMessage("Email format incorrect"),
+    body("uid").notEmpty().withMessage("uid required"),
     body("code").trim().notEmpty().withMessage("Verification code required"),
   ],
   validateRequest,
@@ -115,14 +116,15 @@ router.post(
 
 // ----------------------
 // RESET PASSWORD
+// Controller expects: { uid, code, password }
 // ----------------------
 router.post(
   "/reset-password",
   sensitiveLimiter,
   [
-    body("email").isEmail().withMessage("Email format incorrect"),
+    body("uid").notEmpty().withMessage("uid required"),
     body("code").trim().notEmpty().withMessage("Reset code required"),
-    body("newPassword")
+    body("password")
       .isLength({ min: 8 })
       .withMessage("Password must be at least 8 characters long")
       .matches(/[A-Za-z]/)
@@ -136,6 +138,7 @@ router.post(
 
 // ----------------------
 // SELECT ROLE
+// (your controller uses email + role)
 // ----------------------
 router.post(
   "/select-role",

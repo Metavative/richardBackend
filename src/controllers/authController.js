@@ -2,6 +2,7 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import createError from "http-errors";
 import { validationResult } from "express-validator";
+
 import { User } from "../models/User.js";
 import { VerificationCode } from "../models/VerificationCode.js";
 import { PasswordResetCode } from "../models/PasswordResetCode.js";
@@ -16,8 +17,7 @@ import FriendRequest from "../models/FriendRequest.js";
 
 // ---------- helpers ----------
 const make5DigitCode = () => String(crypto.randomInt(10000, 100000));
-
-const hashToken = (token) => bcrypt.hash(token, env.TOKEN_SALT_ROUNDS || 12);
+const hashToken = (token) => bcrypt.hash(String(token), Number(env.TOKEN_SALT_ROUNDS || 12));
 
 function assertValid(req) {
   const errors = validationResult(req);
@@ -31,18 +31,22 @@ function assertValid(req) {
 
 const isProd = env.NODE_ENV === "production";
 
+function normEmail(email) {
+  return String(email || "").trim().toLowerCase();
+}
+
 // ---------- REGISTER ----------
 export async function register(req, res, next) {
   try {
     assertValid(req);
 
-    // ✅ name is optional now
     const { name, email, password } = req.body;
+    const safeEmail = normEmail(email);
 
     const safeName =
       name && String(name).trim().length > 0 ? String(name).trim() : "Player";
 
-    let user = await User.findOne({ email });
+    let user = await User.findOne({ email: safeEmail });
 
     if (user) {
       if (user.emailVerified) {
@@ -50,10 +54,11 @@ export async function register(req, res, next) {
       }
 
       user.name = safeName || user.name;
+      user.email = safeEmail;
       user.password = password;
       await user.save();
     } else {
-      user = await User.create({ name: safeName, email, password });
+      user = await User.create({ name: safeName, email: safeEmail, password });
     }
 
     await VerificationCode.deleteMany({ userId: user._id });
@@ -67,13 +72,15 @@ export async function register(req, res, next) {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
 
+    // NOTE: this is still awaited; if you want register to also not timeout,
+    // we can apply the same "respond first, email after" strategy here too.
     await sendEmail({
       to: user.email,
       subject: "Verify your email",
       html: `<p>Your verification code is <b>${raw}</b></p>`,
     });
 
-    res.status(201).json({
+    return res.status(201).json({
       message: "Verification code sent",
       uid: user._id,
       email: user.email,
@@ -88,13 +95,17 @@ export async function resendVerification(req, res, next) {
   try {
     assertValid(req);
 
-    const { email } = req.body;
+    const safeEmail = normEmail(req.body.email);
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: safeEmail });
     if (!user) return res.status(404).json({ message: "User not found" });
 
     if (user.emailVerified) {
-      return res.status(200).json({ message: "Email already verified", uid: user._id, email: user.email });
+      return res.status(200).json({
+        message: "Email already verified",
+        uid: user._id,
+        email: user.email,
+      });
     }
 
     await VerificationCode.deleteMany({ userId: user._id });
@@ -157,8 +168,9 @@ export async function login(req, res, next) {
     assertValid(req);
 
     const { email, password } = req.body;
+    const safeEmail = normEmail(email);
 
-    const user = await User.findOne({ email }).select("+password +refreshToken");
+    const user = await User.findOne({ email: safeEmail }).select("+password +refreshToken");
     if (!user) return res.status(401).json({ message: "Invalid credentials" });
 
     const ok = await user.comparePassword(password);
@@ -191,7 +203,7 @@ export async function login(req, res, next) {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    res.json({
+    return res.json({
       accessToken,
       user: {
         id: user._id,
@@ -223,7 +235,7 @@ export async function refresh(req, res, next) {
       email: user.email,
     });
 
-    res.json({ accessToken });
+    return res.json({ accessToken });
   } catch (err) {
     next(err);
   }
@@ -248,16 +260,17 @@ export async function logout(req, res) {
     sameSite: isProd ? "strict" : "lax",
   });
 
-  res.json({ message: "Logged out" });
+  return res.json({ message: "Logged out" });
 }
 
-// ---------- FORGOT PASSWORD ----------
+// ---------- FORGOT PASSWORD (NON-BLOCKING EMAIL) ----------
 export async function forgotPassword(req, res, next) {
   try {
     assertValid(req);
 
-    const { email } = req.body;
-    const user = await User.findOne({ email });
+    const safeEmail = normEmail(req.body.email);
+
+    const user = await User.findOne({ email: safeEmail });
     if (!user) return res.status(404).json({ message: "User not found" });
 
     await PasswordResetCode.deleteMany({ userId: user._id });
@@ -271,73 +284,67 @@ export async function forgotPassword(req, res, next) {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
 
-    await sendEmail({
-      to: user.email,
-      subject: "Reset your password",
-      html: `<p>Your password reset code is <b>${raw}</b></p>`,
-    });
-
-    return res.status(200).json({
+    // ✅ respond immediately
+    res.status(200).json({
       message: "Password reset code sent",
       uid: user._id,
       email: user.email,
+    });
+
+    // ✅ send email after response (no await)
+    sendEmail({
+      to: user.email,
+      subject: "Reset your password",
+      html: `<p>Your password reset code is <b>${raw}</b></p>`,
+    }).catch((err) => {
+      console.error("❌ Email send failed (forgotPassword):", err?.message || err);
     });
   } catch (err) {
     next(err);
   }
 }
 
-// // ---------- FORGOT PASSWORD ----------
-// export async function forgotPassword(req, res, next) {
-//   try {
-//     assertValid(req);
+// ---------- RESET PASSWORD ----------
+export async function resetPassword(req, res, next) {
+  try {
+    assertValid(req);
 
-//     const { email } = req.body;
-//     const safeEmail = String(email || "").trim().toLowerCase();
+    // Your controller expects uid + code + password
+    const { uid, code, password } = req.body;
 
-//     const user = await User.findOne({ email: safeEmail });
-//     if (!user) return res.status(404).json({ message: "User not found" });
+    const row = await PasswordResetCode.findOne({ userId: uid });
+    if (!row) return res.status(400).json({ message: "Code not found or expired" });
 
-//     await PasswordResetCode.deleteMany({ userId: user._id });
+    if (row.expiresAt < new Date()) {
+      await PasswordResetCode.deleteMany({ userId: uid });
+      return res.status(400).json({ message: "Code expired" });
+    }
 
-//     const raw = make5DigitCode();
-//     const codeHash = await hashToken(raw);
+    const ok = await bcrypt.compare(String(code), row.codeHash);
+    if (!ok) return res.status(400).json({ message: "Invalid code" });
 
-//     await PasswordResetCode.create({
-//       userId: user._id,
-//       codeHash,
-//       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-//     });
+    const user = await User.findById(uid);
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-//     // ✅ respond immediately (prevents Flutter timeout)
-//     res.status(200).json({
-//       message: "Password reset code sent",
-//       uid: user._id,
-//       email: user.email,
-//     });
+    user.password = password;
+    await user.save();
 
-//     // ✅ send email after response (no await)
-//     sendEmail({
-//       to: user.email,
-//       subject: "Reset your password",
-//       html: `<p>Your password reset code is <b>${raw}</b></p>`,
-//     }).catch((err) => {
-//       console.error("❌ Email send failed (forgotPassword):", err?.message || err);
-//     });
-//   } catch (err) {
-//     next(err);
-//   }
-// }
+    await PasswordResetCode.deleteMany({ userId: uid });
 
-
+    return res.json({ message: "Password reset successful" });
+  } catch (err) {
+    next(err);
+  }
+}
 
 // ---------- SELECT ROLE ----------
 export async function selectRole(req, res, next) {
   try {
     assertValid(req);
 
+    // Your route validates email + role
     const { email, role } = req.body;
-    const safeEmail = String(email || "").trim().toLowerCase();
+    const safeEmail = normEmail(email);
 
     const user = await User.findOne({ email: safeEmail });
     if (!user) return res.status(404).json({ message: "User not found" });
@@ -350,7 +357,6 @@ export async function selectRole(req, res, next) {
     next(err);
   }
 }
-
 
 // ---------- FETCH USERS ----------
 export async function fetchUsers(req, res, next) {
