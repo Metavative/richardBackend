@@ -1,4 +1,3 @@
-// src/routes/authRoutes.js
 import { Router } from "express";
 import { body } from "express-validator";
 import { authLimiter, sensitiveLimiter } from "../middleware/rateLimiters.js";
@@ -20,9 +19,7 @@ import {
 
 const router = Router();
 
-// ----------------------
 // REGISTER
-// ----------------------
 router.post(
   "/register",
   authLimiter,
@@ -41,9 +38,7 @@ router.post(
   asyncHandler(register)
 );
 
-// ----------------------
 // LOGIN
-// ----------------------
 router.post(
   "/login",
   authLimiter,
@@ -55,10 +50,7 @@ router.post(
   asyncHandler(login)
 );
 
-// ----------------------
-// VERIFY EMAIL OTP
-// Controller expects: { uid, code }
-// ----------------------
+// VERIFY EMAIL OTP  (expects { uid, code })
 router.post(
   "/verify-email",
   authLimiter,
@@ -70,9 +62,7 @@ router.post(
   asyncHandler(verifyEmail)
 );
 
-// ----------------------
 // RESEND VERIFICATION
-// ----------------------
 router.post(
   "/resend-verification",
   sensitiveLimiter,
@@ -81,9 +71,7 @@ router.post(
   asyncHandler(resendVerification)
 );
 
-// ----------------------
 // REFRESH TOKENS
-// ----------------------
 router.post(
   "/refresh",
   sensitiveLimiter,
@@ -92,9 +80,7 @@ router.post(
   asyncHandler(refresh)
 );
 
-// ----------------------
 // LOGOUT
-// ----------------------
 router.post(
   "/logout",
   sensitiveLimiter,
@@ -103,9 +89,7 @@ router.post(
   asyncHandler(logout)
 );
 
-// ----------------------
-// FORGOT PASSWORD
-// ----------------------
+// FORGOT PASSWORD (expects { email })
 router.post(
   "/forgot-password",
   sensitiveLimiter,
@@ -114,10 +98,7 @@ router.post(
   asyncHandler(forgotPassword)
 );
 
-// ----------------------
-// RESET PASSWORD
-// Controller expects: { uid, code, password }
-// ----------------------
+// RESET PASSWORD (expects { uid, code, password })
 router.post(
   "/reset-password",
   sensitiveLimiter,
@@ -136,10 +117,7 @@ router.post(
   asyncHandler(resetPassword)
 );
 
-// ----------------------
-// SELECT ROLE
-// (your controller uses email + role)
-// ----------------------
+// SELECT ROLE (expects { email, role })
 router.post(
   "/select-role",
   authLimiter,
@@ -151,9 +129,7 @@ router.post(
   asyncHandler(selectRole)
 );
 
-// ----------------------
-// FETCH USERS (admin-like utility)
-// ----------------------
+// FETCH USERS
 router.get("/fetchUsers", asyncHandler(fetchUsers));
 
 export default router;

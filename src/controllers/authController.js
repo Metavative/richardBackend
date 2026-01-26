@@ -17,7 +17,8 @@ import FriendRequest from "../models/FriendRequest.js";
 
 // ---------- helpers ----------
 const make5DigitCode = () => String(crypto.randomInt(10000, 100000));
-const hashToken = (token) => bcrypt.hash(String(token), Number(env.TOKEN_SALT_ROUNDS || 12));
+const hashToken = (token) =>
+  bcrypt.hash(String(token), Number(env.TOKEN_SALT_ROUNDS || 12));
 
 function assertValid(req) {
   const errors = validationResult(req);
@@ -72,8 +73,7 @@ export async function register(req, res, next) {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
 
-    // NOTE: this is still awaited; if you want register to also not timeout,
-    // we can apply the same "respond first, email after" strategy here too.
+    // Optional: if this also times out, use the same "respond first, email after" strategy
     await sendEmail({
       to: user.email,
       subject: "Verify your email",
@@ -143,7 +143,8 @@ export async function verifyEmail(req, res, next) {
     const { uid, code } = req.body;
 
     const row = await VerificationCode.findOne({ userId: uid });
-    if (!row) return res.status(400).json({ message: "Code not found or expired" });
+    if (!row)
+      return res.status(400).json({ message: "Code not found or expired" });
 
     if (row.expiresAt < new Date()) {
       await VerificationCode.deleteMany({ userId: uid });
@@ -170,7 +171,9 @@ export async function login(req, res, next) {
     const { email, password } = req.body;
     const safeEmail = normEmail(email);
 
-    const user = await User.findOne({ email: safeEmail }).select("+password +refreshToken");
+    const user = await User.findOne({ email: safeEmail }).select(
+      "+password +refreshToken"
+    );
     if (!user) return res.status(401).json({ message: "Invalid credentials" });
 
     const ok = await user.comparePassword(password);
@@ -221,7 +224,8 @@ export async function login(req, res, next) {
 export async function refresh(req, res, next) {
   try {
     const token = req.cookies?.refreshToken;
-    if (!token) return res.status(401).json({ message: "Missing refresh token" });
+    if (!token)
+      return res.status(401).json({ message: "Missing refresh token" });
 
     const payload = verifyRefreshToken(token);
     const user = await User.findById(payload.sub).select("+refreshToken");
@@ -263,7 +267,7 @@ export async function logout(req, res) {
   return res.json({ message: "Logged out" });
 }
 
-// ---------- FORGOT PASSWORD (NON-BLOCKING EMAIL) ----------
+// ---------- FORGOT PASSWORD (RESPOND FIRST, EMAIL AFTER) ----------
 export async function forgotPassword(req, res, next) {
   try {
     assertValid(req);
@@ -284,14 +288,14 @@ export async function forgotPassword(req, res, next) {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
 
-    // ✅ respond immediately
+    // ✅ respond immediately (prevents Flutter 15s timeout)
     res.status(200).json({
       message: "Password reset code sent",
       uid: user._id,
       email: user.email,
     });
 
-    // ✅ send email after response (no await)
+    // ✅ email async
     sendEmail({
       to: user.email,
       subject: "Reset your password",
@@ -309,11 +313,12 @@ export async function resetPassword(req, res, next) {
   try {
     assertValid(req);
 
-    // Your controller expects uid + code + password
+    // Contract: { uid, code, password }
     const { uid, code, password } = req.body;
 
     const row = await PasswordResetCode.findOne({ userId: uid });
-    if (!row) return res.status(400).json({ message: "Code not found or expired" });
+    if (!row)
+      return res.status(400).json({ message: "Code not found or expired" });
 
     if (row.expiresAt < new Date()) {
       await PasswordResetCode.deleteMany({ userId: uid });
@@ -342,7 +347,6 @@ export async function selectRole(req, res, next) {
   try {
     assertValid(req);
 
-    // Your route validates email + role
     const { email, role } = req.body;
     const safeEmail = normEmail(email);
 
