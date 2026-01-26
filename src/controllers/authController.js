@@ -287,47 +287,47 @@ export async function forgotPassword(req, res, next) {
   }
 }
 
-// ---------- FORGOT PASSWORD ----------
-export async function forgotPassword(req, res, next) {
-  try {
-    assertValid(req);
+// // ---------- FORGOT PASSWORD ----------
+// export async function forgotPassword(req, res, next) {
+//   try {
+//     assertValid(req);
 
-    const { email } = req.body;
-    const safeEmail = String(email || "").trim().toLowerCase();
+//     const { email } = req.body;
+//     const safeEmail = String(email || "").trim().toLowerCase();
 
-    const user = await User.findOne({ email: safeEmail });
-    if (!user) return res.status(404).json({ message: "User not found" });
+//     const user = await User.findOne({ email: safeEmail });
+//     if (!user) return res.status(404).json({ message: "User not found" });
 
-    await PasswordResetCode.deleteMany({ userId: user._id });
+//     await PasswordResetCode.deleteMany({ userId: user._id });
 
-    const raw = make5DigitCode();
-    const codeHash = await hashToken(raw);
+//     const raw = make5DigitCode();
+//     const codeHash = await hashToken(raw);
 
-    await PasswordResetCode.create({
-      userId: user._id,
-      codeHash,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-    });
+//     await PasswordResetCode.create({
+//       userId: user._id,
+//       codeHash,
+//       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+//     });
 
-    // ✅ respond immediately (prevents Flutter timeout)
-    res.status(200).json({
-      message: "Password reset code sent",
-      uid: user._id,
-      email: user.email,
-    });
+//     // ✅ respond immediately (prevents Flutter timeout)
+//     res.status(200).json({
+//       message: "Password reset code sent",
+//       uid: user._id,
+//       email: user.email,
+//     });
 
-    // ✅ send email after response (no await)
-    sendEmail({
-      to: user.email,
-      subject: "Reset your password",
-      html: `<p>Your password reset code is <b>${raw}</b></p>`,
-    }).catch((err) => {
-      console.error("❌ Email send failed (forgotPassword):", err?.message || err);
-    });
-  } catch (err) {
-    next(err);
-  }
-}
+//     // ✅ send email after response (no await)
+//     sendEmail({
+//       to: user.email,
+//       subject: "Reset your password",
+//       html: `<p>Your password reset code is <b>${raw}</b></p>`,
+//     }).catch((err) => {
+//       console.error("❌ Email send failed (forgotPassword):", err?.message || err);
+//     });
+//   } catch (err) {
+//     next(err);
+//   }
+// }
 
 
 
