@@ -287,40 +287,48 @@ export async function forgotPassword(req, res, next) {
   }
 }
 
-// ---------- RESET PASSWORD ----------
-export async function resetPassword(req, res, next) {
+// ---------- FORGOT PASSWORD ----------
+export async function forgotPassword(req, res, next) {
   try {
     assertValid(req);
 
-    const { email, code, newPassword } = req.body;
-
+    const { email } = req.body;
     const safeEmail = String(email || "").trim().toLowerCase();
-    const safeCode = String(code || "").trim();
 
     const user = await User.findOne({ email: safeEmail });
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    const row = await PasswordResetCode.findOne({ userId: user._id });
-    if (!row) return res.status(400).json({ message: "Code not found or expired" });
-
-    if (row.expiresAt < new Date()) {
-      await PasswordResetCode.deleteMany({ userId: user._id });
-      return res.status(400).json({ message: "Code expired" });
-    }
-
-    const ok = await bcrypt.compare(safeCode, row.codeHash);
-    if (!ok) return res.status(400).json({ message: "Invalid code" });
-
-    user.password = newPassword;
-    await user.save();
-
     await PasswordResetCode.deleteMany({ userId: user._id });
 
-    return res.json({ message: "Password reset successful" });
+    const raw = make5DigitCode();
+    const codeHash = await hashToken(raw);
+
+    await PasswordResetCode.create({
+      userId: user._id,
+      codeHash,
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    });
+
+    // ✅ Respond immediately so Flutter never times out
+    res.status(200).json({
+      message: "Password reset code sent",
+      uid: user._id,
+      email: user.email,
+    });
+
+    // ✅ Send email AFTER response (do not block)
+    sendEmail({
+      to: user.email,
+      subject: "Reset your password",
+      html: `<p>Your password reset code is <b>${raw}</b></p>`,
+    }).catch((err) => {
+      console.error("❌ forgotPassword sendEmail failed:", err?.message || err);
+    });
   } catch (err) {
     next(err);
   }
 }
+
 
 
 // ---------- SELECT ROLE ----------
