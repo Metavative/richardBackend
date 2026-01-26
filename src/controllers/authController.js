@@ -292,26 +292,29 @@ export async function resetPassword(req, res, next) {
   try {
     assertValid(req);
 
-    const { uid, code, password } = req.body;
+    const { email, code, newPassword } = req.body;
 
-    const row = await PasswordResetCode.findOne({ userId: uid });
+    const safeEmail = String(email || "").trim().toLowerCase();
+    const safeCode = String(code || "").trim();
+
+    const user = await User.findOne({ email: safeEmail });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const row = await PasswordResetCode.findOne({ userId: user._id });
     if (!row) return res.status(400).json({ message: "Code not found or expired" });
 
     if (row.expiresAt < new Date()) {
-      await PasswordResetCode.deleteMany({ userId: uid });
+      await PasswordResetCode.deleteMany({ userId: user._id });
       return res.status(400).json({ message: "Code expired" });
     }
 
-    const ok = await bcrypt.compare(String(code), row.codeHash);
+    const ok = await bcrypt.compare(safeCode, row.codeHash);
     if (!ok) return res.status(400).json({ message: "Invalid code" });
 
-    const user = await User.findById(uid);
-    if (!user) return res.status(404).json({ message: "User not found" });
-
-    user.password = password;
+    user.password = newPassword;
     await user.save();
 
-    await PasswordResetCode.deleteMany({ userId: uid });
+    await PasswordResetCode.deleteMany({ userId: user._id });
 
     return res.json({ message: "Password reset successful" });
   } catch (err) {
@@ -319,13 +322,16 @@ export async function resetPassword(req, res, next) {
   }
 }
 
+
 // ---------- SELECT ROLE ----------
 export async function selectRole(req, res, next) {
   try {
     assertValid(req);
 
-    const { uid, role } = req.body;
-    const user = await User.findById(uid);
+    const { email, role } = req.body;
+    const safeEmail = String(email || "").trim().toLowerCase();
+
+    const user = await User.findOne({ email: safeEmail });
     if (!user) return res.status(404).json({ message: "User not found" });
 
     user.role = role;
@@ -336,6 +342,7 @@ export async function selectRole(req, res, next) {
     next(err);
   }
 }
+
 
 // ---------- FETCH USERS ----------
 export async function fetchUsers(req, res, next) {
