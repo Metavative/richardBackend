@@ -309,20 +309,20 @@ export async function forgotPassword(req, res, next) {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
 
-    // ✅ Respond immediately so Flutter never times out
+    // ✅ respond immediately (prevents Flutter timeout)
     res.status(200).json({
       message: "Password reset code sent",
       uid: user._id,
       email: user.email,
     });
 
-    // ✅ Send email AFTER response (do not block)
+    // ✅ send email after response (no await)
     sendEmail({
       to: user.email,
       subject: "Reset your password",
       html: `<p>Your password reset code is <b>${raw}</b></p>`,
     }).catch((err) => {
-      console.error("❌ forgotPassword sendEmail failed:", err?.message || err);
+      console.error("❌ Email send failed (forgotPassword):", err?.message || err);
     });
   } catch (err) {
     next(err);
