@@ -1,3 +1,4 @@
+// src/routes/authRoutes.js
 import { Router } from "express";
 import { body } from "express-validator";
 import { authLimiter, sensitiveLimiter } from "../middleware/rateLimiters.js";
@@ -50,7 +51,7 @@ router.post(
   asyncHandler(login)
 );
 
-// VERIFY EMAIL OTP  (expects { uid, code })
+// VERIFY EMAIL OTP (expects { uid, code })
 router.post(
   "/verify-email",
   authLimiter,
@@ -72,10 +73,12 @@ router.post(
 );
 
 // REFRESH TOKENS
+// ✅ refreshToken is optional in body because cookie may exist (web)
+// mobile will send it in body
 router.post(
   "/refresh",
   sensitiveLimiter,
-  [body("refreshToken").notEmpty().withMessage("refreshToken required")],
+  [body("refreshToken").optional().isString()],
   validateRequest,
   asyncHandler(refresh)
 );
@@ -84,7 +87,7 @@ router.post(
 router.post(
   "/logout",
   sensitiveLimiter,
-  [body("refreshToken").notEmpty().withMessage("refreshToken required")],
+  [body("refreshToken").optional().isString()],
   validateRequest,
   asyncHandler(logout)
 );

@@ -1,3 +1,4 @@
+// src/controllers/authController.js
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import createError from "http-errors";
@@ -13,7 +14,6 @@ import {
   generateRefreshToken,
   verifyRefreshToken,
 } from "../utils/generateTokens.js";
-import FriendRequest from "../models/FriendRequest.js";
 
 // ---------- helpers ----------
 const make5DigitCode = () => String(crypto.randomInt(10000, 100000));
@@ -34,6 +34,17 @@ const isProd = env.NODE_ENV === "production";
 
 function normEmail(email) {
   return String(email || "").trim().toLowerCase();
+}
+
+function pickRefreshToken(req) {
+  // ✅ mobile-safe: accept from body or cookie
+  const fromBody = req.body?.refreshToken;
+  if (fromBody && String(fromBody).trim()) return String(fromBody).trim();
+
+  const fromCookie = req.cookies?.refreshToken;
+  if (fromCookie && String(fromCookie).trim()) return String(fromCookie).trim();
+
+  return null;
 }
 
 // ---------- REGISTER ----------
@@ -73,7 +84,6 @@ export async function register(req, res, next) {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
 
-    // Optional: if this also times out, use the same "respond first, email after" strategy
     await sendEmail({
       to: user.email,
       subject: "Verify your email",
@@ -199,6 +209,7 @@ export async function login(req, res, next) {
     user.refreshToken = refreshToken;
     await user.save({ validateBeforeSave: false });
 
+    // ✅ keep cookie for web, but ALSO return refreshToken for mobile
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: isProd,
@@ -208,6 +219,7 @@ export async function login(req, res, next) {
 
     return res.json({
       accessToken,
+      refreshToken, // ✅ important for Flutter
       user: {
         id: user._id,
         name: user.name,
@@ -223,7 +235,8 @@ export async function login(req, res, next) {
 // ---------- REFRESH ----------
 export async function refresh(req, res, next) {
   try {
-    const token = req.cookies?.refreshToken;
+    // ✅ accept refresh token from body OR cookie
+    const token = pickRefreshToken(req);
     if (!token)
       return res.status(401).json({ message: "Missing refresh token" });
 
@@ -239,6 +252,7 @@ export async function refresh(req, res, next) {
       email: user.email,
     });
 
+    // (optional) you can rotate refresh tokens later, but keep it simple for now
     return res.json({ accessToken });
   } catch (err) {
     next(err);
@@ -247,7 +261,8 @@ export async function refresh(req, res, next) {
 
 // ---------- LOGOUT ----------
 export async function logout(req, res) {
-  const token = req.cookies?.refreshToken;
+  // ✅ accept refresh token from body OR cookie
+  const token = pickRefreshToken(req);
 
   if (token) {
     try {
@@ -267,7 +282,7 @@ export async function logout(req, res) {
   return res.json({ message: "Logged out" });
 }
 
-// ---------- FORGOT PASSWORD (RESPOND FIRST, EMAIL AFTER) ----------
+// ---------- FORGOT PASSWORD ----------
 export async function forgotPassword(req, res, next) {
   try {
     assertValid(req);
@@ -288,20 +303,21 @@ export async function forgotPassword(req, res, next) {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
 
-    // ✅ respond immediately (prevents Flutter 15s timeout)
     res.status(200).json({
       message: "Password reset code sent",
       uid: user._id,
       email: user.email,
     });
 
-    // ✅ email async
     sendEmail({
       to: user.email,
       subject: "Reset your password",
       html: `<p>Your password reset code is <b>${raw}</b></p>`,
     }).catch((err) => {
-      console.error("❌ Email send failed (forgotPassword):", err?.message || err);
+      console.error(
+        "❌ Email send failed (forgotPassword):",
+        err?.message || err
+      );
     });
   } catch (err) {
     next(err);
@@ -313,7 +329,6 @@ export async function resetPassword(req, res, next) {
   try {
     assertValid(req);
 
-    // Contract: { uid, code, password }
     const { uid, code, password } = req.body;
 
     const row = await PasswordResetCode.findOne({ userId: uid });
