@@ -11,7 +11,9 @@ export async function getMyStatsController(req, res) {
       req?.user?.id;
 
     if (!userId) {
-      return res.status(401).json({ code: "UNAUTHORIZED", message: "Missing user" });
+      return res
+        .status(401)
+        .json({ code: "UNAUTHORIZED", message: "Missing user" });
     }
 
     const data = await getMyStats(userId);

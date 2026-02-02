@@ -1,6 +1,6 @@
 // src/modules/stats/stats.service.js
 import Match from "../../models/Match.js";
-import User from "../../models/User.js";
+import { User } from "../../models/User.js";
 
 function toId(v) {
   if (!v) return "";
@@ -33,15 +33,13 @@ function pickPlayedAt(match) {
 function extractScoreForUser(match, userId) {
   const uid = toId(userId);
 
-  const candidates = [
-    match?.scores,
-    match?.result?.scores,
-    match?.match?.scores,
-  ];
+  const candidates = [match?.scores, match?.result?.scores, match?.match?.scores];
 
   for (const c of candidates) {
     if (Array.isArray(c)) {
-      const row = c.find((x) => toId(x?.userId) === uid || toId(x?.playerId) === uid);
+      const row = c.find(
+        (x) => toId(x?.userId) === uid || toId(x?.playerId) === uid
+      );
       if (row && (row.score !== undefined || row.points !== undefined)) {
         const val = row.score ?? row.points;
         const n = Number(val);
@@ -152,10 +150,7 @@ export async function getMyStats(userId) {
     ],
   };
 
-  const raw = await Match.find(query)
-    .sort({ updatedAt: -1 })
-    .limit(500)
-    .lean();
+  const raw = await Match.find(query).sort({ updatedAt: -1 }).limit(500).lean();
 
   // Filter "finished" only if status is present; if status missing, accept it
   const finished = raw.filter((m) => {
@@ -202,13 +197,22 @@ export async function getMyStats(userId) {
   }
 
   const gamesPlayed = wins + losses + draws;
-  const winRate = gamesPlayed > 0 ? Math.round((wins / gamesPlayed) * 1000) / 10 : 0; // one decimal
-  const avgScore = scoreCount > 0 ? Math.round((totalScore / scoreCount) * 10) / 10 : 0;
+  const winRate =
+    gamesPlayed > 0 ? Math.round((wins / gamesPlayed) * 1000) / 10 : 0; // one decimal
+  const avgScore =
+    scoreCount > 0 ? Math.round((totalScore / scoreCount) * 10) / 10 : 0;
   const longestStreak = computeLongestWinStreak(matchesDesc, uid);
 
-  // Optional rank/mmr from user
+  // Optional rank/mmr from user (support both "mmr" and "gamingStats.mmr")
   const rank = Number.isFinite(Number(user?.rank)) ? Number(user.rank) : null;
-  const mmr = Number.isFinite(Number(user?.mmr)) ? Number(user.mmr) : null;
+
+  const mmrCandidate =
+    user?.mmr ??
+    user?.gamingStats?.mmr ??
+    user?.stats?.mmr ??
+    null;
+
+  const mmr = Number.isFinite(Number(mmrCandidate)) ? Number(mmrCandidate) : null;
 
   return {
     userId: uid,
@@ -216,9 +220,9 @@ export async function getMyStats(userId) {
     wins,
     losses,
     draws,
-    winRate,        // percent
-    longestStreak,  // win streak
-    avgScore,       // if scores exist in matches
+    winRate, // percent
+    longestStreak, // win streak
+    avgScore, // if scores exist in matches
     rank,
     mmr,
   };

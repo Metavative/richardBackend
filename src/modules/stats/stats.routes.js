@@ -1,11 +1,11 @@
 // src/modules/stats/stats.routes.js
-import { Router } from "express";
+import express from "express";
+import { requireAuth } from "../../middleware/auth.js";
 import { getMyStatsController } from "./stats.controller.js";
-import requireAuth from "../../middleware/requireAuth.js"; // adjust if your middleware file name differs
 
-const router = Router();
+const router = express.Router();
 
-// GET /stats/me
+// GET /api/stats/me (if your main router is mounted at /api)
 router.get("/me", requireAuth, getMyStatsController);
 
 export default router;
