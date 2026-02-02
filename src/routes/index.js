@@ -20,6 +20,7 @@ import achievementsRoutes from "../modules/achievements/achievements.routes.js";
 import entitlementsRoutes from "../modules/entitlements/entitlements.routes.js";
 import adsRoutes from "../modules/ads/ads.routes.js";
 import statsRoutes from "../modules/stats/stats.routes.js";
+import historyRoutes from "../modules/history/history.routes.js";
 
 const router = express.Router();
 
@@ -49,4 +50,5 @@ router.use("/achievements", achievementsRoutes);
 router.use("/entitlements", entitlementsRoutes);
 router.use("/ads", adsRoutes);
 router.use("/stats", statsRoutes);
+router.use("/history", historyRoutes);
 export default router;
