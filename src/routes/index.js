@@ -12,6 +12,15 @@ import aiCoachRoutes from "./aiCoachRoutes.js";
 // ✅ Keep ONLY this one
 import matchmakingRoutes from "./matchmakingRoutes.js";
 
+// ✅ NEW
+import profileRoutes from "../modules/profile/profile.routes.js";
+import cosmeticsRoutes from "../modules/cosmetics/cosmetics.routes.js";
+import economyRoutes from "../modules/economy/economy.routes.js";
+import achievementsRoutes from "../modules/achievements/achievements.routes.js";
+import entitlementsRoutes from "../modules/entitlements/entitlements.routes.js";
+import adsRoutes from "../modules/ads/ads.routes.js";
+import statsRoutes from "../modules/stats/stats.routes.js";
+
 const router = express.Router();
 
 router.use(responseMiddleware);
@@ -32,4 +41,12 @@ router.use("/matchmaking", matchmakingRoutes);
 router.use("/presence", presenceRoutes);
 router.use("/ai-coach", aiCoachRoutes);
 
+// ✅ NEW MODULES
+router.use("/profile", profileRoutes);
+router.use("/cosmetics", cosmeticsRoutes);
+router.use("/economy", economyRoutes);
+router.use("/achievements", achievementsRoutes);
+router.use("/entitlements", entitlementsRoutes);
+router.use("/ads", adsRoutes);
+router.use("/stats", statsRoutes);
 export default router;

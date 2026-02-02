@@ -3,6 +3,16 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import validator from "validator";
 
+const unlockedAchievementSchema = new mongoose.Schema(
+  {
+    key: { type: String, required: true },
+    unlockedAt: { type: Date, default: Date.now },
+    // Optional: record why it unlocked (match/points milestone/etc)
+    source: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
@@ -36,6 +46,46 @@ const userSchema = new mongoose.Schema(
     },
 
     refreshToken: { type: String, select: false },
+
+    // ✅ NEW: Monetization entitlements (ads + premium AI)
+    entitlements: {
+      adFree: { type: Boolean, default: false },
+      premiumAI: { type: Boolean, default: false },
+    },
+
+    cosmetics: {
+      appliedBoardId: { type: String, default: "" },
+      appliedPiecesId: { type: String, default: "" },
+    },
+
+    // ============================
+    // ECONOMY / PROGRESSION
+    // ============================
+    // Points (XP): earned from matches + achievements, also unlocks achievements
+    // Coins: spendable currency to buy skins
+    economy: {
+      pointsBalance: { type: Number, default: 0, min: 0 },
+      coinsBalance: { type: Number, default: 0, min: 0 },
+
+      // lifetime totals are helpful for analytics + achievement conditions
+      lifetimePointsEarned: { type: Number, default: 0, min: 0 },
+      lifetimeCoinsEarned: { type: Number, default: 0, min: 0 },
+
+      // optional: track last time we awarded points to avoid weird duplicates
+      lastPointsAwardAt: { type: Date },
+
+      // track how many lifetime points have already been used to claim coins
+      lastCoinClaimPoints: { type: Number, default: 0, min: 0 },
+    },
+
+    // Achievement tracking:
+    unlockedAchievements: { type: [unlockedAchievementSchema], default: [] },
+
+    achievementProgress: {
+      type: Map,
+      of: Number,
+      default: {},
+    },
 
     // ============ GAMING FIELDS ============
     gamingStats: {
@@ -75,40 +125,18 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/**
- * -----------------------------
- * Indexes (production performance)
- * -----------------------------
- * - email/username already have unique indexes via schema, but we add supporting indexes for search/sort.
- */
-userSchema.index({ username: 1 });
 userSchema.index({ name: 1 });
-userSchema.index({ email: 1 });
 userSchema.index({ "gamingStats.mmr": -1 });
 
-/**
- * -----------------------------
- * Security: protect sensitive fields if anything is serialized
- * -----------------------------
- * NOTE: password and refreshToken are already select:false, but this protects against accidental manual selects.
- */
 userSchema.set("toJSON", {
   transform: function (_doc, ret) {
     delete ret.password;
     delete ret.refreshToken;
-    // keep internal Mongo fields if you want; often you keep _id and remove __v
     delete ret.__v;
     return ret;
   },
 });
 
-/**
- * -----------------------------
- * Hooks
- * -----------------------------
- */
-
-// Password hashing
 userSchema.pre("save", async function (next) {
   try {
     if (!this.isModified("password")) return next();
@@ -120,7 +148,6 @@ userSchema.pre("save", async function (next) {
   }
 });
 
-// Gaming stats calculation
 userSchema.pre("save", function (next) {
   try {
     if (
@@ -132,8 +159,7 @@ userSchema.pre("save", function (next) {
       this.gamingStats.totalGames = wins + losses + draws;
 
       if (this.gamingStats.totalGames > 0) {
-        this.gamingStats.winRate =
-          (wins / this.gamingStats.totalGames) * 100;
+        this.gamingStats.winRate = (wins / this.gamingStats.totalGames) * 100;
       } else {
         this.gamingStats.winRate = 0;
       }
@@ -144,21 +170,9 @@ userSchema.pre("save", function (next) {
   }
 });
 
-/**
- * -----------------------------
- * Auth methods
- * -----------------------------
- */
-
 userSchema.methods.comparePassword = async function (candidate) {
   return bcrypt.compare(candidate, this.password);
 };
-
-/**
- * -----------------------------
- * Gaming methods
- * -----------------------------
- */
 
 userSchema.methods.updateMMR = function (change) {
   this.gamingStats.mmr += change;
@@ -189,12 +203,6 @@ userSchema.methods.addDraw = function () {
   return this.save();
 };
 
-/**
- * -----------------------------
- * Public profile helper (for friends/search/leaderboards)
- * -----------------------------
- * Use this in routes so you never accidentally return sensitive fields.
- */
 userSchema.methods.getPublicProfile = function () {
   return {
     id: this._id?.toString(),
@@ -206,6 +214,14 @@ userSchema.methods.getPublicProfile = function () {
     gamingStats: {
       mmr: this.gamingStats?.mmr ?? 1000,
       wins: this.gamingStats?.wins ?? 0,
+    },
+    economy: {
+      pointsBalance: this.economy?.pointsBalance ?? 0,
+      coinsBalance: this.economy?.coinsBalance ?? 0,
+    },
+    entitlements: {
+      adFree: this.entitlements?.adFree === true,
+      premiumAI: this.entitlements?.premiumAI === true,
     },
     isOnline: this.isOnline ?? false,
   };

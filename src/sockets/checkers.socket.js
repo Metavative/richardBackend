@@ -1,6 +1,7 @@
 // src/sockets/checkers.socket.js
 import Match from "../models/Match.js";
 import { checkersStore } from "../stores/checkers.store.js";
+import { awardMatchResult } from "../services/economy.service.js";
 
 /**
  * Flutter emits:
@@ -37,7 +38,6 @@ function room(matchId) {
 function requireSocketUser(socket, payloadUserId) {
   const authedUserId = socket?.data?.user?.userId || null;
 
-  // ✅ market-ready: online checkers requires auth
   if (!authedUserId) {
     const err = new Error("AUTH_REQUIRED");
     err.code = "AUTH_REQUIRED";
@@ -54,7 +54,6 @@ function requireSocketUser(socket, payloadUserId) {
 }
 
 function disconnectedMapToObject(st) {
-  // st.disconnected is a Map<userId, { at, expiresAt }>
   const out = {};
   try {
     const m = st?.disconnected;
@@ -99,6 +98,69 @@ function emitStateToRoom(io, matchId, st) {
   });
 }
 
+async function resolvePlayersFromDb(matchId) {
+  try {
+    const m = await Match.findOne({ matchId }).select("players").lean();
+    if (m?.players?.length >= 2) {
+      const p1 = m.players[0]?.userId?.toString?.() || null;
+      const p2 = m.players[1]?.userId?.toString?.() || null;
+      if (p1 && p2) return { p1, p2 };
+    }
+  } catch (_) {}
+  return { p1: null, p2: null };
+}
+
+async function markMatchCompleted({ matchId, winnerId }) {
+  try {
+    const mid = safeStr(matchId);
+    const wid = safeStr(winnerId);
+    if (!mid || !wid) return;
+
+    await Match.updateOne(
+      { matchId: mid },
+      {
+        $set: {
+          status: "completed",
+          winner: wid,
+          endedAt: new Date(),
+        },
+      }
+    );
+  } catch (e) {
+    console.error("Failed to mark Match completed:", e?.message || e);
+  }
+}
+
+async function awardIfPossible({ matchId, winnerId, reason, st }) {
+  try {
+    const win = safeStr(winnerId);
+    if (!win) return;
+
+    let p1 = safeStr(st?.playerOneId);
+    let p2 = safeStr(st?.playerTwoId);
+
+    if (!p1 || !p2) {
+      const fromDb = await resolvePlayersFromDb(matchId);
+      p1 = p1 || fromDb.p1;
+      p2 = p2 || fromDb.p2;
+    }
+
+    const loserId = win === p1 ? p2 : win === p2 ? p1 : null;
+    if (!loserId) return;
+
+    // ✅ idempotent via PointsLedger unique index
+    // ✅ awards POINTS only; coins are claimed later via /api/economy/claim
+    await awardMatchResult({
+      matchId,
+      winnerId: win,
+      loserId,
+      reason: reason || "normal",
+    });
+  } catch (e) {
+    console.error("Economy award failed:", e?.message || e);
+  }
+}
+
 export function bindCheckersSockets(io) {
   // cleanup old in-memory states every 5 minutes
   setInterval(() => {
@@ -116,7 +178,6 @@ export function bindCheckersSockets(io) {
 
         const authedUserId = requireSocketUser(socket, userIdFromPayload);
 
-        // Join match room
         socket.join(room(matchId));
         socketSession.set(socket.id, { matchId, userId: authedUserId });
 
@@ -130,14 +191,19 @@ export function bindCheckersSockets(io) {
           p2 = m.players[1]?.userId?.toString?.() || null;
         }
 
-        // Create or get state
         const st = checkersStore.ensure(matchId, {
           playerOneId: p1,
           playerTwoId: p2,
           blockersEnabled: false,
         });
 
-        // If players are known, ensure joiner is part of match
+        // ✅ If DB match not found, learn players from joiners
+        if (!st.playerOneId) {
+          st.playerOneId = authedUserId;
+        } else if (!st.playerTwoId && st.playerOneId !== authedUserId) {
+          st.playerTwoId = authedUserId;
+        }
+
         if (st.playerOneId && st.playerTwoId) {
           if (authedUserId !== st.playerOneId && authedUserId !== st.playerTwoId) {
             const err = new Error("You are not in this match");
@@ -146,7 +212,6 @@ export function bindCheckersSockets(io) {
           }
         }
 
-        // ✅ reconnect handling: mark connected + cancel grace timer
         checkersStore.markConnected(matchId, authedUserId);
 
         io.to(room(matchId)).emit("checkers:player_status", {
@@ -155,7 +220,6 @@ export function bindCheckersSockets(io) {
           status: "connected",
         });
 
-        // send state to joiner
         emitStateToSocket(socket, matchId, st);
       } catch (err) {
         socket.emit("checkers:error", {
@@ -177,18 +241,16 @@ export function bindCheckersSockets(io) {
 
         socket.leave(room(matchId));
 
-        // remove session for this socket
         const sess = socketSession.get(socket.id);
         if (sess?.matchId === matchId) socketSession.delete(socket.id);
 
-        // Optional: treat leave as disconnect (start grace)
         const st = checkersStore.get(matchId);
         if (st && !st.gameEnded) {
           const updated = checkersStore.markDisconnected(
             matchId,
             authedUserId,
             GRACE_MS,
-            ({ matchId: mid, userId }) => {
+            async ({ matchId: mid, userId }) => {
               const opp = checkersStore.getOpponentId(mid, userId);
               if (!opp) return;
 
@@ -202,6 +264,14 @@ export function bindCheckersSockets(io) {
               });
 
               emitStateToRoom(io, mid, finalSt);
+
+              await markMatchCompleted({ matchId: mid, winnerId: opp });
+              await awardIfPossible({
+                matchId: mid,
+                winnerId: opp,
+                reason: "left_match",
+                st: finalSt,
+              });
             }
           );
 
@@ -257,7 +327,6 @@ export function bindCheckersSockets(io) {
         if (!st) throw new Error("No state found (join first)");
         if (st.gameEnded) throw new Error("Match already finished");
 
-        // Light turn enforcement (only if player ids known)
         if (st.playerOneId && st.playerTwoId) {
           const isP1 = authedUserId === st.playerOneId;
           const isP2 = authedUserId === st.playerTwoId;
@@ -279,7 +348,6 @@ export function bindCheckersSockets(io) {
           }
         }
 
-        // ✅ move intent only — store decides what happens (you upgraded this already)
         const applied = checkersStore.applyMove(matchId, {
           matchId,
           userId: authedUserId,
@@ -314,12 +382,19 @@ export function bindCheckersSockets(io) {
           },
         });
 
-        // If ended, broadcast match_finished too (Flutter listens to it)
         if (next.gameEnded && next.winner) {
           io.to(room(matchId)).emit("checkers:match_finished", {
             matchId,
             winner: next.winner,
             reason: "normal",
+          });
+
+          await markMatchCompleted({ matchId, winnerId: next.winner });
+          await awardIfPossible({
+            matchId,
+            winnerId: next.winner,
+            reason: "normal",
+            st: next,
           });
         }
       } catch (err) {
@@ -330,7 +405,6 @@ export function bindCheckersSockets(io) {
       }
     });
 
-    // ✅ Phase 1 Step 2: disconnect grace -> forfeit
     socket.on("disconnect", () => {
       try {
         const sess = socketSession.get(socket.id);
@@ -345,12 +419,11 @@ export function bindCheckersSockets(io) {
         if (!st) return;
         if (st.gameEnded) return;
 
-        // Start grace timer inside store
         const updated = checkersStore.markDisconnected(
           matchId,
           userId,
           GRACE_MS,
-          ({ matchId: mid, userId: uid }) => {
+          async ({ matchId: mid, userId: uid }) => {
             const opp = checkersStore.getOpponentId(mid, uid);
             if (!opp) return;
 
@@ -364,6 +437,14 @@ export function bindCheckersSockets(io) {
             });
 
             emitStateToRoom(io, mid, finalSt);
+
+            await markMatchCompleted({ matchId: mid, winnerId: opp });
+            await awardIfPossible({
+              matchId: mid,
+              winnerId: opp,
+              reason: "opponent_disconnected",
+              st: finalSt,
+            });
           }
         );
 
@@ -375,7 +456,7 @@ export function bindCheckersSockets(io) {
           expiresAt: info?.expiresAt,
         });
       } catch (_) {
-        // ignore disconnect errors
+        // ignore
       }
     });
   });

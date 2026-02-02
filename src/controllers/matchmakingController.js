@@ -8,6 +8,17 @@ import Match from "../models/Match.js";
  */
 const queue = new Set();
 
+function getUserId(req) {
+  // requireAuth sets req.user = { sub, email, role ... }
+  const uid = req.user || null;
+  if (!uid) {
+    const err = createError(401, "UNAUTHORIZED");
+    err.code = "UNAUTHORIZED";
+    throw err;
+  }
+  return uid.toString();
+}
+
 /**
  * GET /api/matchmaking/status
  */
@@ -21,7 +32,7 @@ export async function getQueueStatus(_req, res) {
  * POST /api/matchmaking/join
  */
 export async function joinQueue(req, res) {
-  const userId = req.userId;
+  const userId = getUserId(req);
 
   if (queue.has(userId)) {
     const err = createError(409, "Already in matchmaking queue");
@@ -41,7 +52,7 @@ export async function joinQueue(req, res) {
  * POST /api/matchmaking/leave
  */
 export async function leaveQueue(req, res) {
-  const userId = req.userId;
+  const userId = getUserId(req);
 
   if (!queue.has(userId)) {
     const err = createError(404, "Not in matchmaking queue");
@@ -61,7 +72,7 @@ export async function leaveQueue(req, res) {
  * GET /api/matchmaking/active
  */
 export async function getActiveMatches(req, res) {
-  const userId = req.userId;
+  const userId = getUserId(req);
 
   const matches = await Match.find({
     "players.userId": userId,
@@ -84,10 +95,8 @@ export async function adminFlushQueue(_req, res) {
  * OPTIONAL: hook used by socket challenge accept
  */
 export async function onChallengeAccepted({ matchId, fromUserId, toUserId }) {
-  // Remove both users from queue if present
-  queue.delete(fromUserId);
-  queue.delete(toUserId);
-
+  if (fromUserId) queue.delete(fromUserId.toString());
+  if (toUserId) queue.delete(toUserId.toString());
   return { matchId };
 }
 

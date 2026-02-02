@@ -1,24 +1,5 @@
 // src/stores/checkers.store.js
 
-/**
- * In-memory checkers states:
- * matchId -> {
- *   matchId,
- *   playerOneId,
- *   playerTwoId,
- *   pieces: 8x8 (strings/null),
- *   isPlayerOneTurn: boolean,
- *   gameEnded: boolean,
- *   winner: string|null,
- *   updatedAt: number,
- *   seenMoveIds: Set<string>,
- *
- *   // Step 2 additions:
- *   disconnected: Map<userId, { at: number, expiresAt: number }>,
- *   disconnectTimers: Map<userId, NodeJS.Timeout>,
- * }
- */
-
 function createInitialBoard({ blockersEnabled = false } = {}) {
   if (blockersEnabled) {
     return [
@@ -45,6 +26,27 @@ function createInitialBoard({ blockersEnabled = false } = {}) {
   ];
 }
 
+// lowercase => player one, uppercase => player two
+function countSides(pieces) {
+  let p1 = 0;
+  let p2 = 0;
+
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const v = pieces?.[r]?.[c];
+      if (!v) continue;
+      if (typeof v !== "string") continue;
+
+      // only letters count as pieces
+      const ch = v[0];
+      if (ch >= "a" && ch <= "z") p1++;
+      else if (ch >= "A" && ch <= "Z") p2++;
+    }
+  }
+
+  return { p1, p2 };
+}
+
 class CheckersStore {
   constructor() {
     this.map = new Map();
@@ -62,7 +64,6 @@ class CheckersStore {
   ensure(matchId, { playerOneId, playerTwoId, blockersEnabled = false } = {}) {
     const existing = this.get(matchId);
     if (existing) {
-      // If we learn player ids later, hydrate them
       if (!existing.playerOneId && playerOneId) existing.playerOneId = playerOneId;
       if (!existing.playerTwoId && playerTwoId) existing.playerTwoId = playerTwoId;
       return existing;
@@ -79,7 +80,6 @@ class CheckersStore {
       updatedAt: Date.now(),
       seenMoveIds: new Set(),
 
-      // Step 2
       disconnected: new Map(),
       disconnectTimers: new Map(),
     };
@@ -88,7 +88,6 @@ class CheckersStore {
     return st;
   }
 
-  /** Resolve opponent id if known */
   getOpponentId(matchId, userId) {
     const st = this.get(matchId);
     if (!st) return null;
@@ -102,7 +101,6 @@ class CheckersStore {
     return null;
   }
 
-  /** Mark disconnected and start/refresh grace timer */
   markDisconnected(matchId, userId, graceMs, onExpire) {
     const st = this.get(matchId);
     if (!st) return null;
@@ -114,12 +112,9 @@ class CheckersStore {
     const now = Date.now();
     const expiresAt = now + graceMs;
 
-    // Clear any existing timer
     const prevTimer = st.disconnectTimers.get(uid);
     if (prevTimer) {
-      try {
-        clearTimeout(prevTimer);
-      } catch (_) {}
+      try { clearTimeout(prevTimer); } catch (_) {}
       st.disconnectTimers.delete(uid);
     }
 
@@ -127,14 +122,9 @@ class CheckersStore {
 
     const t = setTimeout(() => {
       try {
-        // Ensure still disconnected at expiry moment
         const info = st.disconnected.get(uid);
         if (!info) return;
-
-        // If match already ended, stop
         if (st.gameEnded) return;
-
-        // expire callback decides forfeit
         onExpire?.({ matchId, userId: uid });
       } catch (_) {}
     }, graceMs);
@@ -145,7 +135,6 @@ class CheckersStore {
     return st;
   }
 
-  /** Mark connected and cancel timer */
   markConnected(matchId, userId) {
     const st = this.get(matchId);
     if (!st) return null;
@@ -155,9 +144,7 @@ class CheckersStore {
 
     const prevTimer = st.disconnectTimers.get(uid);
     if (prevTimer) {
-      try {
-        clearTimeout(prevTimer);
-      } catch (_) {}
+      try { clearTimeout(prevTimer); } catch (_) {}
       st.disconnectTimers.delete(uid);
     }
 
@@ -166,7 +153,6 @@ class CheckersStore {
     return st;
   }
 
-  /** End match by forfeit */
   forfeit(matchId, winnerUserId) {
     const st = this.get(matchId);
     if (!st) return null;
@@ -176,11 +162,8 @@ class CheckersStore {
     st.winner = winnerUserId?.toString?.() || null;
     st.updatedAt = Date.now();
 
-    // clear all timers
     for (const [, timer] of st.disconnectTimers.entries()) {
-      try {
-        clearTimeout(timer);
-      } catch (_) {}
+      try { clearTimeout(timer); } catch (_) {}
     }
     st.disconnectTimers.clear();
     st.disconnected.clear();
@@ -199,9 +182,7 @@ class CheckersStore {
     }
     if (clientMoveId) st.seenMoveIds.add(clientMoveId);
 
-    // ✅ Server authority note:
-    // For Step 2 we keep your existing apply behavior.
-    // (If you've upgraded store to strict validation elsewhere, keep that.)
+    // Apply move (simple)
     if (Array.isArray(movePayload?.pieces)) {
       st.pieces = movePayload.pieces;
     } else if (movePayload?.from && movePayload?.to) {
@@ -226,12 +207,29 @@ class CheckersStore {
       }
     }
 
+    // Turn
     if (typeof movePayload?.isPlayerOneTurn === "boolean") {
       st.isPlayerOneTurn = movePayload.isPlayerOneTurn;
     } else {
       st.isPlayerOneTurn = !st.isPlayerOneTurn;
     }
 
+    // ✅ Server decides win if not explicitly provided
+    const { p1, p2 } = countSides(st.pieces);
+
+    if (p1 === 0 || p2 === 0) {
+      st.gameEnded = true;
+
+      // If player ids are known, set winner id
+      if (st.playerOneId && st.playerTwoId) {
+        st.winner = p1 === 0 ? st.playerTwoId : st.playerOneId;
+      } else {
+        // fallback: keep winner null (socket layer will still emit match_finished but reward needs ids)
+        st.winner = st.winner || null;
+      }
+    }
+
+    // If client explicitly sent end/winner, allow it (but server win detection already covers most cases)
     if (typeof movePayload?.gameEnded === "boolean") st.gameEnded = movePayload.gameEnded;
     if (movePayload?.winner != null) st.winner = movePayload.winner?.toString?.() ?? null;
 
@@ -244,12 +242,9 @@ class CheckersStore {
     for (const [matchId, st] of this.map.entries()) {
       if (!st?.updatedAt) continue;
       if (now - st.updatedAt > ms) {
-        // clear timers before deletion
         try {
           for (const [, timer] of st.disconnectTimers?.entries?.() || []) {
-            try {
-              clearTimeout(timer);
-            } catch (_) {}
+            try { clearTimeout(timer); } catch (_) {}
           }
         } catch (_) {}
         this.map.delete(matchId);
