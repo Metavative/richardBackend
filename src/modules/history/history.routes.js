@@ -1,10 +1,9 @@
-// src/modules/history/history.routes.js
 import express from "express";
-import { requireAuth } from "../../middleware/auth.js";
+import { authMiddleware } from "../../middleware/auth.middleware.js";
 import { getMyHistoryController } from "./history.controller.js";
 
 const router = express.Router();
 
-router.get("/me", requireAuth, getMyHistoryController);
+router.get("/me", authMiddleware, getMyHistoryController);
 
 export default router;

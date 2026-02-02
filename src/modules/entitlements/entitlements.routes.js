@@ -1,10 +1,10 @@
 import express from "express";
-import { requireAuth } from "../../middleware/requireAuth.js";
+import { authMiddleware } from "../../middleware/auth.middleware.js";
 import { getMyEntitlements, unlockAdFree } from "./entitlements.controller.js";
 
 const router = express.Router();
 
-router.get("/me", requireAuth, getMyEntitlements);
-router.post("/ad-free", requireAuth, unlockAdFree);
+router.get("/me", authMiddleware, getMyEntitlements);
+router.post("/ad-free", authMiddleware, unlockAdFree);
 
 export default router;
