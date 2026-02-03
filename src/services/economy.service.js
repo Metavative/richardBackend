@@ -50,9 +50,7 @@ function computeClaimableCoinsFromUser(user) {
   const claimableCoins = steps * ECON.COINS_PER_CLAIM_STEP;
 
   const nextClaimAtPoints =
-    claimableCoins > 0
-      ? lifetime // already eligible
-      : lastClaimPts + ECON.COIN_CLAIM_STEP_POINTS;
+    claimableCoins > 0 ? lifetime : lastClaimPts + ECON.COIN_CLAIM_STEP_POINTS;
 
   return {
     claimableCoins,
@@ -101,7 +99,7 @@ export async function getEconomySnapshot(userId) {
  * ✅ Coins can be collected only when XP thresholds are met.
  * Idempotent via ledger:
  * - source: COIN_CLAIM
- * - refId: coin_claim:<lifetimePointsEarned>:<lastCoinClaimPoints>
+ * - refId: coin_claim:<lastCoinClaimPoints>-><newLastCoinClaimPoints>
  */
 export async function claimCoinsFromXp(userId) {
   const uid = toStr(userId);
@@ -156,8 +154,12 @@ export async function claimCoinsFromXp(userId) {
   }
 
   // Apply balances
-  user.economy.coinsBalance = Math.max(0, num(user.economy.coinsBalance, 0) + claim.claimableCoins);
-  user.economy.lifetimeCoinsEarned = num(user.economy.lifetimeCoinsEarned, 0) + claim.claimableCoins;
+  user.economy.coinsBalance = Math.max(
+    0,
+    num(user.economy.coinsBalance, 0) + claim.claimableCoins
+  );
+  user.economy.lifetimeCoinsEarned =
+    num(user.economy.lifetimeCoinsEarned, 0) + claim.claimableCoins;
 
   // Move the claim marker forward
   user.economy.lastCoinClaimPoints = newLastClaimPoints;
@@ -179,7 +181,12 @@ export async function claimCoinsFromXp(userId) {
  * - MATCH_WIN + refId = match:<matchId>
  * - MATCH_LOSS + refId = match:<matchId>
  */
-export async function awardMatchResult({ matchId, winnerId, loserId, reason = "normal" }) {
+export async function awardMatchResult({
+  matchId,
+  winnerId,
+  loserId,
+  reason = "normal",
+}) {
   const matchKey = toStr(matchId);
   const winUid = toStr(winnerId);
   const loseUid = toStr(loserId);
@@ -191,18 +198,29 @@ export async function awardMatchResult({ matchId, winnerId, loserId, reason = "n
   const winObjId = new mongoose.Types.ObjectId(winUid);
   const loseObjId = new mongoose.Types.ObjectId(loseUid);
 
-  const [winner, loser] = await Promise.all([User.findById(winObjId), User.findById(loseObjId)]);
+  const [winner, loser] = await Promise.all([
+    User.findById(winObjId),
+    User.findById(loseObjId),
+  ]);
   if (!winner || !loser) throw new Error("awardMatchResult: winner/loser not found");
 
   // -----------------------
   // Stats
   // -----------------------
+  winner.gamingStats = winner.gamingStats || {};
+  loser.gamingStats = loser.gamingStats || {};
+  winner.economy = winner.economy || {};
+  loser.economy = loser.economy || {};
+
   winner.gamingStats.wins = (winner.gamingStats.wins || 0) + 1;
 
   const prevStreak = Number(winner.gamingStats.streak || 0);
   const newStreak = prevStreak > 0 ? prevStreak + 1 : 1;
   winner.gamingStats.streak = newStreak;
-  winner.gamingStats.maxStreak = Math.max(Number(winner.gamingStats.maxStreak || 0), newStreak);
+  winner.gamingStats.maxStreak = Math.max(
+    Number(winner.gamingStats.maxStreak || 0),
+    newStreak
+  );
 
   loser.gamingStats.losses = (loser.gamingStats.losses || 0) + 1;
   loser.gamingStats.streak = 0;
@@ -214,11 +232,19 @@ export async function awardMatchResult({ matchId, winnerId, loserId, reason = "n
   const winnerPoints = ECON.WIN_POINTS + streakBonus;
   const loserPoints = ECON.LOSS_POINTS;
 
-  winner.economy.pointsBalance = Math.max(0, (winner.economy.pointsBalance || 0) + winnerPoints);
-  loser.economy.pointsBalance = Math.max(0, (loser.economy.pointsBalance || 0) + loserPoints);
+  winner.economy.pointsBalance = Math.max(
+    0,
+    (winner.economy.pointsBalance || 0) + winnerPoints
+  );
+  loser.economy.pointsBalance = Math.max(
+    0,
+    (loser.economy.pointsBalance || 0) + loserPoints
+  );
 
-  winner.economy.lifetimePointsEarned = (winner.economy.lifetimePointsEarned || 0) + winnerPoints;
-  loser.economy.lifetimePointsEarned = (loser.economy.lifetimePointsEarned || 0) + loserPoints;
+  winner.economy.lifetimePointsEarned =
+    (winner.economy.lifetimePointsEarned || 0) + winnerPoints;
+  loser.economy.lifetimePointsEarned =
+    (loser.economy.lifetimePointsEarned || 0) + loserPoints;
 
   winner.lastMatchAt = new Date();
   loser.lastMatchAt = new Date();
@@ -287,5 +313,63 @@ export async function awardMatchResult({ matchId, winnerId, loserId, reason = "n
       coinsAwarded: 0,
       unlockedAchievements: loserAch.unlocked,
     },
+  };
+}
+
+/**
+ * ✅ DEV coin purchase: credits coins immediately.
+ * IMPORTANT: Server-side allowlist to prevent spoofing.
+ * Later you replace this with IAP receipt validation.
+ */
+export async function buyCoinsDev(userId, { packId, coins, price }) {
+  const uid = toStr(userId);
+  if (!uid) throw new Error("buyCoinsDev: missing userId");
+
+  const PACKS = {
+    pack_500: { coins: 500, price: 0.99 },
+    pack_1200: { coins: 1200, price: 1.99 },
+    pack_3000: { coins: 3000, price: 3.99 },
+  };
+
+  const pack = PACKS[String(packId || "")];
+  if (!pack) {
+    const err = new Error("Unknown packId");
+    err.code = "BAD_REQUEST";
+    err.status = 400;
+    throw err;
+  }
+
+  // Optional sanity checks (don’t trust client)
+  if (typeof coins === "number" && coins !== pack.coins) {
+    const err = new Error("Coins mismatch");
+    err.code = "BAD_REQUEST";
+    err.status = 400;
+    throw err;
+  }
+  if (typeof price === "number" && price !== pack.price) {
+    const err = new Error("Price mismatch");
+    err.code = "BAD_REQUEST";
+    err.status = 400;
+    throw err;
+  }
+
+  const user = await User.findById(uid);
+  if (!user) throw new Error("buyCoinsDev: user not found");
+
+  user.economy = user.economy || {};
+
+  user.economy.coinsBalance = Math.max(
+    0,
+    num(user.economy.coinsBalance, 0) + pack.coins
+  );
+  user.economy.lifetimeCoinsEarned =
+    num(user.economy.lifetimeCoinsEarned, 0) + pack.coins;
+
+  await user.save();
+
+  return {
+    userId: uid,
+    purchased: { packId, coins: pack.coins, price: pack.price },
+    snapshot: await getEconomySnapshot(uid),
   };
 }

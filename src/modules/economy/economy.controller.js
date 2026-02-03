@@ -3,11 +3,11 @@ import User from "../../models/User.js";
 import {
   claimCoinsFromXp,
   getEconomySnapshot,
+  buyCoinsDev,
 } from "../../services/economy.service.js";
 import { getAdsConfigForUser, getInterstitialEligibility } from "../../services/ads.service.js";
 
 function getAuthedUserId(req) {
-  // Support multiple auth middlewares
   return (
     req?.userId ||
     req?.user?.sub ||
@@ -27,7 +27,6 @@ export async function getMyEconomy(req, res) {
     throw err;
   }
 
-  // ✅ Include entitlements so Flutter can decide whether to show ads
   const user = await User.findById(userId).select(
     "name username economy gamingStats cosmetics entitlements"
   );
@@ -39,11 +38,8 @@ export async function getMyEconomy(req, res) {
     throw err;
   }
 
-  // ✅ Adds claimable coin info for Flutter
   const snap = await getEconomySnapshot(user._id);
 
-  // ✅ Ads: include config + eligibility for "between matches" interstitials
-  // This is computed server-side using entitlements + cooldown + daily cap.
   const adsConfig = await getAdsConfigForUser(user._id);
   const adsEligibility = await getInterstitialEligibility({
     userId: user._id,
@@ -59,13 +55,11 @@ export async function getMyEconomy(req, res) {
       cosmetics: user.cosmetics || { appliedBoardId: "", appliedPiecesId: "" },
     },
 
-    // ✅ Monetization entitlements
     entitlements: {
       adFree: user.entitlements?.adFree === true,
       premiumAI: user.entitlements?.premiumAI === true,
     },
 
-    // ✅ Ads in same response (Flutter can decide instantly)
     ads: {
       config: adsConfig,
       eligibility: adsEligibility,
@@ -77,7 +71,6 @@ export async function getMyEconomy(req, res) {
       lifetimePointsEarned: user.economy?.lifetimePointsEarned ?? 0,
       lifetimeCoinsEarned: user.economy?.lifetimeCoinsEarned ?? 0,
 
-      // ✅ Collect Coins UI
       claimableCoins: snap.claimableCoins,
       claimableNow: snap.claimableNow,
       nextClaimAtPoints: snap.nextClaimAtPoints,
@@ -115,6 +108,36 @@ export async function claimMyCoins(req, res) {
     userId: result.userId,
     claimedCoins: result.claimedCoins,
     message: result.message,
-    economy: result.snapshot, // includes claimableNow, balances, etc.
+    economy: result.snapshot,
+  });
+}
+
+// ✅ NEW: buy coins (dev placeholder)
+export async function buyCoins(req, res) {
+  const userId = getAuthedUserId(req);
+
+  if (!userId) {
+    const err = new Error("UNAUTHORIZED");
+    err.status = 401;
+    err.code = "UNAUTHORIZED";
+    throw err;
+  }
+
+  // Flutter sends: { packId, coins, price }
+  const { packId, coins, price } = req.body || {};
+
+  if (!packId || typeof packId !== "string") {
+    const err = new Error("packId is required");
+    err.status = 400;
+    err.code = "BAD_REQUEST";
+    throw err;
+  }
+
+  const result = await buyCoinsDev(userId, { packId, coins, price });
+
+  return res.ok({
+    userId: result.userId,
+    purchased: result.purchased,
+    economy: result.snapshot,
   });
 }
