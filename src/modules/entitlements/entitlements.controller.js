@@ -1,4 +1,5 @@
 import User from "../../models/User.js";
+import { buyEntitlementWithCoins } from "../../services/entitlements.service.js";
 
 function getAuthedUserId(req) {
   return (
@@ -12,7 +13,6 @@ function getAuthedUserId(req) {
 
 export async function getMyEntitlements(req, res) {
   const userId = getAuthedUserId(req);
-
   if (!userId) {
     const err = new Error("UNAUTHORIZED");
     err.status = 401;
@@ -29,7 +29,6 @@ export async function getMyEntitlements(req, res) {
   }
 
   return res.ok({
-    userId: user._id.toString(),
     entitlements: {
       adFree: user.entitlements?.adFree === true,
       premiumAI: user.entitlements?.premiumAI === true,
@@ -37,13 +36,8 @@ export async function getMyEntitlements(req, res) {
   });
 }
 
-/**
- * DEV/ADMIN endpoint for now.
- * Later, this will be triggered by a real purchase receipt verification.
- */
-export async function unlockAdFree(req, res) {
+export async function buyAdFree(req, res) {
   const userId = getAuthedUserId(req);
-
   if (!userId) {
     const err = new Error("UNAUTHORIZED");
     err.status = 401;
@@ -51,28 +45,35 @@ export async function unlockAdFree(req, res) {
     throw err;
   }
 
-  const value = req?.body?.adFree;
-  const adFree = value === undefined ? true : value === true;
+  const priceCoins = Number(req.body?.priceCoins ?? 0);
 
-  const user = await User.findByIdAndUpdate(
+  const result = await buyEntitlementWithCoins({
     userId,
-    { $set: { "entitlements.adFree": adFree } },
-    { new: true }
-  ).select("entitlements");
+    entitlementKey: "adFree",
+    priceCoins,
+    source: "ENTITLEMENT_ADFREE",
+  });
 
-  if (!user) {
-    const err = new Error("User not found");
-    err.status = 404;
-    err.code = "USER_NOT_FOUND";
+  return res.ok(result);
+}
+
+export async function buyPremiumAi(req, res) {
+  const userId = getAuthedUserId(req);
+  if (!userId) {
+    const err = new Error("UNAUTHORIZED");
+    err.status = 401;
+    err.code = "UNAUTHORIZED";
     throw err;
   }
 
-  return res.ok({
-    userId: user._id.toString(),
-    entitlements: {
-      adFree: user.entitlements?.adFree === true,
-      premiumAI: user.entitlements?.premiumAI === true,
-    },
-    message: adFree ? "Ad-free unlocked" : "Ad-free disabled",
+  const priceCoins = Number(req.body?.priceCoins ?? 0);
+
+  const result = await buyEntitlementWithCoins({
+    userId,
+    entitlementKey: "premiumAI",
+    priceCoins,
+    source: "ENTITLEMENT_PREMIUM_AI",
   });
+
+  return res.ok(result);
 }
