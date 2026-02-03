@@ -1,11 +1,14 @@
 // src/modules/economy/economy.controller.js
 import User from "../../models/User.js";
 import {
-  claimCoinsFromXp,
   getEconomySnapshot,
+  claimCoinsFromXp,
   buyCoinsDev,
 } from "../../services/economy.service.js";
-import { getAdsConfigForUser, getInterstitialEligibility } from "../../services/ads.service.js";
+import {
+  getAdsConfigForUser,
+  getInterstitialEligibility,
+} from "../../services/ads.service.js";
 
 function getAuthedUserId(req) {
   return (
@@ -17,13 +20,14 @@ function getAuthedUserId(req) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// GET /economy/me
+// ---------------------------------------------------------------------------
 export async function getMyEconomy(req, res) {
   const userId = getAuthedUserId(req);
-
   if (!userId) {
     const err = new Error("UNAUTHORIZED");
     err.status = 401;
-    err.code = "UNAUTHORIZED";
     throw err;
   }
 
@@ -32,14 +36,14 @@ export async function getMyEconomy(req, res) {
   );
 
   if (!user) {
-    const err = new Error("User not found");
+    const err = new Error("USER_NOT_FOUND");
     err.status = 404;
-    err.code = "USER_NOT_FOUND";
     throw err;
   }
 
   const snap = await getEconomySnapshot(user._id);
 
+  // Ads config (optional but already wired)
   const adsConfig = await getAdsConfigForUser(user._id);
   const adsEligibility = await getInterstitialEligibility({
     userId: user._id,
@@ -52,7 +56,10 @@ export async function getMyEconomy(req, res) {
     profile: {
       name: user.name,
       username: user.username,
-      cosmetics: user.cosmetics || { appliedBoardId: "", appliedPiecesId: "" },
+      cosmetics: user.cosmetics || {
+        appliedBoardId: "",
+        appliedPiecesId: "",
+      },
     },
 
     entitlements: {
@@ -66,11 +73,10 @@ export async function getMyEconomy(req, res) {
     },
 
     economy: {
-      pointsBalance: user.economy?.pointsBalance ?? 0,
-      coinsBalance: user.economy?.coinsBalance ?? 0,
-      lifetimePointsEarned: user.economy?.lifetimePointsEarned ?? 0,
-      lifetimeCoinsEarned: user.economy?.lifetimeCoinsEarned ?? 0,
-
+      pointsBalance: snap.pointsBalance,
+      coinsBalance: snap.coinsBalance,
+      lifetimePointsEarned: snap.lifetimePointsEarned,
+      lifetimeCoinsEarned: snap.lifetimeCoinsEarned,
       claimableCoins: snap.claimableCoins,
       claimableNow: snap.claimableNow,
       nextClaimAtPoints: snap.nextClaimAtPoints,
@@ -92,13 +98,14 @@ export async function getMyEconomy(req, res) {
   });
 }
 
+// ---------------------------------------------------------------------------
+// POST /economy/claim
+// ---------------------------------------------------------------------------
 export async function claimMyCoins(req, res) {
   const userId = getAuthedUserId(req);
-
   if (!userId) {
     const err = new Error("UNAUTHORIZED");
     err.status = 401;
-    err.code = "UNAUTHORIZED";
     throw err;
   }
 
@@ -112,28 +119,30 @@ export async function claimMyCoins(req, res) {
   });
 }
 
-// ✅ NEW: buy coins (dev placeholder)
+// ---------------------------------------------------------------------------
+// POST /economy/buy-coins  (DEV ONLY)
+// ---------------------------------------------------------------------------
 export async function buyCoins(req, res) {
   const userId = getAuthedUserId(req);
-
   if (!userId) {
     const err = new Error("UNAUTHORIZED");
     err.status = 401;
-    err.code = "UNAUTHORIZED";
     throw err;
   }
 
-  // Flutter sends: { packId, coins, price }
   const { packId, coins, price } = req.body || {};
 
-  if (!packId || typeof packId !== "string") {
+  if (!packId) {
     const err = new Error("packId is required");
     err.status = 400;
-    err.code = "BAD_REQUEST";
     throw err;
   }
 
-  const result = await buyCoinsDev(userId, { packId, coins, price });
+  const result = await buyCoinsDev(userId, {
+    packId,
+    coins,
+    price,
+  });
 
   return res.ok({
     userId: result.userId,
