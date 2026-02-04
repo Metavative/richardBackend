@@ -17,4 +17,7 @@ router.post("/buy-coins", requireAuth, buyCoins);
 router.post("/buy", requireAuth, buyCoins);
 router.post("/coins/buy", requireAuth, buyCoins);
 
+
+router.post("/buy-coins/capture", economyController.captureOrder);
+
 export default router;

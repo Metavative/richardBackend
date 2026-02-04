@@ -9,6 +9,7 @@ import {
   getAdsConfigForUser,
   getInterstitialEligibility,
 } from "../../services/ads.service.js";
+import { createPayPalOrder, capturePayPalOrder } from "../../services/paypal.service.js";
 
 function getAuthedUserId(req) {
   return (
@@ -122,31 +123,70 @@ export async function claimMyCoins(req, res) {
 // ---------------------------------------------------------------------------
 // POST /economy/buy-coins  (DEV ONLY)
 // ---------------------------------------------------------------------------
+// export async function buyCoins(req, res) {
+//   const userId = getAuthedUserId(req);
+//   if (!userId) {
+//     const err = new Error("UNAUTHORIZED");
+//     err.status = 401;
+//     throw err;
+//   }
+
+//   const { packId, coins, price } = req.body || {};
+
+//   if (!packId) {
+//     const err = new Error("packId is required");
+//     err.status = 400;
+//     throw err;
+//   }
+
+//   const result = await buyCoinsDev(userId, {
+//     packId,
+//     coins,
+//     price,
+//   });
+
+//   return res.ok({
+//     userId: result.userId,
+//     purchased: result.purchased,
+//     economy: result.snapshot,
+//   });
+// }
+
+
 export async function buyCoins(req, res) {
   const userId = getAuthedUserId(req);
-  if (!userId) {
-    const err = new Error("UNAUTHORIZED");
-    err.status = 401;
-    throw err;
-  }
+  const { packId, price } = req.body;
 
-  const { packId, coins, price } = req.body || {};
-
-  if (!packId) {
-    const err = new Error("packId is required");
-    err.status = 400;
-    throw err;
-  }
-
-  const result = await buyCoinsDev(userId, {
-    packId,
-    coins,
-    price,
-  });
-
+  // 1. Create Order in PayPal
+  const order = await createPayPalOrder(price);
+  
+  // 2. Return the Approval Link to Flutter
+  const approvalLink = order.links.find(link => link.rel === 'approve').href;
+  
   return res.ok({
-    userId: result.userId,
-    purchased: result.purchased,
-    economy: result.snapshot,
+    orderId: order.id,
+    approvalUrl: approvalLink
   });
+}
+
+
+export async function captureOrder(req, res) {
+  const userId = getAuthedUserId(req);
+  const { orderId, packId, coins } = req.body; // Added coins to body
+
+  const capture = await capturePayPalOrder(orderId);
+
+  if (capture.status === 'COMPLETED') {
+    // � CRITICAL: You must credit the coins here!
+    // Using your existing buyCoinsDev logic but for a real purchase
+    await buyCoinsDev(userId, { packId, coins }); 
+    
+    const snap = await getEconomySnapshot(userId);
+    return res.ok({
+      success: true,
+      economy: snap
+    });
+  }
+
+  return res.fail("Payment not completed");
 }
