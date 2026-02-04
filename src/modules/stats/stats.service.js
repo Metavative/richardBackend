@@ -23,13 +23,6 @@ function pickPlayedAt(match) {
   );
 }
 
-/**
- * Try to read player scores from a match in a flexible way.
- * Supports:
- *  - match.scores: [{ userId, score }]
- *  - match.result.scores: [{ userId, score }]
- *  - match.settings.winningScore etc (ignored)
- */
 function extractScoreForUser(match, userId) {
   const uid = toId(userId);
 
@@ -48,7 +41,6 @@ function extractScoreForUser(match, userId) {
     }
   }
 
-  // Sometimes score is stored as match.scoreByUserId map
   const map = match?.scoreByUserId || match?.scoresByUserId;
   if (map && typeof map === "object") {
     const val = map[uid];
@@ -60,8 +52,6 @@ function extractScoreForUser(match, userId) {
 }
 
 function extractWinnerId(match) {
-  // Common patterns:
-  // match.winner, match.winnerId, match.result.winnerId, match.result.winner
   const w =
     match?.winnerId ??
     match?.winner ??
@@ -70,7 +60,6 @@ function extractWinnerId(match) {
     match?.match?.winnerId ??
     match?.match?.winner;
 
-  // Draw may be "draw" or null
   if (!w) return null;
   const s = toId(w);
   if (!s || s.toLowerCase() === "draw") return null;
@@ -78,8 +67,6 @@ function extractWinnerId(match) {
 }
 
 function extractPlayers(match) {
-  // Common patterns:
-  // match.players: [userId] or [{userId}] or [{user:{_id}}]
   const p = match?.players ?? match?.match?.players ?? [];
   if (!Array.isArray(p)) return [];
   return p
@@ -117,13 +104,8 @@ function computeLongestWinStreak(matchesDesc, userId) {
       continue;
     }
 
-    // draws break the streak for "win streak" (keep it simple)
     current = 0;
-
-    // losses also break
-    if (!isDraw) {
-      current = 0;
-    }
+    if (!isDraw) current = 0;
   }
 
   return longest;
@@ -133,11 +115,8 @@ export async function getMyStats(userId) {
   const uid = toId(userId);
   if (!uid) throw new Error("User ID missing");
 
-  // Load user for optional mmr/rank
   const user = await User.findById(uid).lean();
 
-  // Query matches where user participated
-  // We keep this flexible: match.players contains userId OR match.playerOneId/playerTwoId patterns
   const query = {
     $or: [
       { players: uid },
@@ -152,14 +131,12 @@ export async function getMyStats(userId) {
 
   const raw = await Match.find(query).sort({ updatedAt: -1 }).limit(500).lean();
 
-  // Filter "finished" only if status is present; if status missing, accept it
   const finished = raw.filter((m) => {
     const s = m?.status;
     if (s === undefined || s === null || s === "") return true;
     return isFinishedStatus(s);
   });
 
-  // Sort by playedAt/endedAt/updatedAt descending for streak computation
   const matchesDesc = [...finished].sort((a, b) => {
     const da = pickPlayedAt(a);
     const db = pickPlayedAt(b);
@@ -167,6 +144,32 @@ export async function getMyStats(userId) {
     const tb = db ? new Date(db).getTime() : 0;
     return tb - ta;
   });
+
+  // ✅ Fallback: if no match history exists, use user.gamingStats
+  if (!matchesDesc.length) {
+    const gs = user?.gamingStats || {};
+    const wins = Number(gs.wins || 0);
+    const losses = Number(gs.losses || 0);
+    const draws = Number(gs.draws || 0);
+    const gamesPlayed = wins + losses + draws;
+    const winRate = gamesPlayed > 0 ? Math.round((wins / gamesPlayed) * 1000) / 10 : 0;
+
+    const mmrCandidate = user?.mmr ?? user?.gamingStats?.mmr ?? user?.stats?.mmr ?? null;
+    const mmr = Number.isFinite(Number(mmrCandidate)) ? Number(mmrCandidate) : null;
+
+    return {
+      userId: uid,
+      gamesPlayed,
+      wins,
+      losses,
+      draws,
+      winRate,
+      longestStreak: Number(gs.maxStreak || 0),
+      avgScore: 0,
+      rank: Number.isFinite(Number(user?.rank)) ? Number(user.rank) : null,
+      mmr,
+    };
+  }
 
   let wins = 0;
   let losses = 0;
@@ -176,7 +179,6 @@ export async function getMyStats(userId) {
 
   for (const m of matchesDesc) {
     const players = extractPlayers(m);
-    // If players list exists and doesn't include uid, ignore (safety)
     if (players.length > 0 && !players.includes(uid)) continue;
 
     const winnerId = extractWinnerId(m);
@@ -197,21 +199,13 @@ export async function getMyStats(userId) {
   }
 
   const gamesPlayed = wins + losses + draws;
-  const winRate =
-    gamesPlayed > 0 ? Math.round((wins / gamesPlayed) * 1000) / 10 : 0; // one decimal
-  const avgScore =
-    scoreCount > 0 ? Math.round((totalScore / scoreCount) * 10) / 10 : 0;
+  const winRate = gamesPlayed > 0 ? Math.round((wins / gamesPlayed) * 1000) / 10 : 0;
+  const avgScore = scoreCount > 0 ? Math.round((totalScore / scoreCount) * 10) / 10 : 0;
   const longestStreak = computeLongestWinStreak(matchesDesc, uid);
 
-  // Optional rank/mmr from user (support both "mmr" and "gamingStats.mmr")
   const rank = Number.isFinite(Number(user?.rank)) ? Number(user.rank) : null;
 
-  const mmrCandidate =
-    user?.mmr ??
-    user?.gamingStats?.mmr ??
-    user?.stats?.mmr ??
-    null;
-
+  const mmrCandidate = user?.mmr ?? user?.gamingStats?.mmr ?? user?.stats?.mmr ?? null;
   const mmr = Number.isFinite(Number(mmrCandidate)) ? Number(mmrCandidate) : null;
 
   return {
@@ -220,9 +214,9 @@ export async function getMyStats(userId) {
     wins,
     losses,
     draws,
-    winRate, // percent
-    longestStreak, // win streak
-    avgScore, // if scores exist in matches
+    winRate,
+    longestStreak,
+    avgScore,
     rank,
     mmr,
   };

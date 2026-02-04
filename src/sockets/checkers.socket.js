@@ -1,6 +1,6 @@
 // src/sockets/checkers.socket.js
+import mongoose from "mongoose";
 import Match from "../models/Match.js";
-import User from "../models/User.js";
 import { checkersStore } from "../stores/checkers.store.js";
 import { awardMatchResult } from "../services/economy.service.js";
 
@@ -16,7 +16,7 @@ import { awardMatchResult } from "../services/economy.service.js";
  *  - checkers:move_applied
  *  - checkers:error
  *  - checkers:player_status   { matchId, userId, status: 'disconnected'|'connected', expiresAt? }
- *  - checkers:match_finished  { matchId, winnerId, winnerName, loserId, loserName, reason }
+ *  - checkers:match_finished  { matchId, winner, reason }
  */
 
 const GRACE_MS = 60_000;
@@ -30,6 +30,25 @@ function safeStr(v) {
   } catch {
     return "";
   }
+}
+
+function isValidObjectId(v) {
+  try {
+    return mongoose.Types.ObjectId.isValid(String(v));
+  } catch {
+    return false;
+  }
+}
+
+function matchQuery(matchId) {
+  const mid = safeStr(matchId);
+  if (!mid) return null;
+
+  // ✅ Support both: { matchId: "M-..." } OR { _id: ObjectId("...") }
+  if (isValidObjectId(mid)) {
+    return { $or: [{ matchId: mid }, { _id: new mongoose.Types.ObjectId(mid) }] };
+  }
+  return { matchId: mid };
 }
 
 function room(matchId) {
@@ -59,7 +78,6 @@ function disconnectedMapToObject(st) {
   try {
     const m = st?.disconnected;
     if (!m || typeof m.entries !== "function") return out;
-
     for (const [uid, info] of m.entries()) {
       out[uid] = info;
     }
@@ -100,15 +118,48 @@ function emitStateToRoom(io, matchId, st) {
 }
 
 async function resolvePlayersFromDb(matchId) {
+  const q = matchQuery(matchId);
+  if (!q) return { p1: null, p2: null };
+
   try {
-    const m = await Match.findOne({ matchId }).select("players").lean();
+    const m = await Match.findOne(q).select("players").lean();
     if (m?.players?.length >= 2) {
       const p1 = m.players[0]?.userId?.toString?.() || null;
       const p2 = m.players[1]?.userId?.toString?.() || null;
       if (p1 && p2) return { p1, p2 };
     }
   } catch (_) {}
+
   return { p1: null, p2: null };
+}
+
+async function ensureMatchDocExists({ matchId, p1, p2 }) {
+  const q = matchQuery(matchId);
+  if (!q) return null;
+
+  try {
+    const existing = await Match.findOne(q).select("_id matchId players status").lean();
+    if (existing) return existing;
+
+    // ✅ Create if missing (so history/stats has something to query)
+    if (!p1 || !p2) return null;
+    if (!isValidObjectId(p1) || !isValidObjectId(p2)) return null;
+
+    const created = await Match.create({
+      matchId: safeStr(matchId), // might be ObjectId string, that's fine as matchId too
+      status: "active",
+      startedAt: new Date(),
+      players: [
+        { userId: new mongoose.Types.ObjectId(p1) },
+        { userId: new mongoose.Types.ObjectId(p2) },
+      ],
+    });
+
+    return created?.toObject?.() || created;
+  } catch (e) {
+    // swallow - match creation is best-effort
+    return null;
+  }
 }
 
 async function markMatchCompleted({ matchId, winnerId }) {
@@ -117,16 +168,18 @@ async function markMatchCompleted({ matchId, winnerId }) {
     const wid = safeStr(winnerId);
     if (!mid || !wid) return;
 
-    await Match.updateOne(
-      { matchId: mid },
-      {
-        $set: {
-          status: "completed",
-          winner: wid,
-          endedAt: new Date(),
-        },
-      }
-    );
+    const q = matchQuery(mid);
+    if (!q) return;
+
+    // Ensure match exists (best-effort) so completion is recorded
+    // We attempt to create only if we can infer players elsewhere; caller can do ensureMatchDocExists
+    await Match.updateOne(q, {
+      $set: {
+        status: "completed",
+        winner: wid,
+        endedAt: new Date(),
+      },
+    });
   } catch (e) {
     console.error("Failed to mark Match completed:", e?.message || e);
   }
@@ -146,11 +199,14 @@ async function awardIfPossible({ matchId, winnerId, reason, st }) {
       p2 = p2 || fromDb.p2;
     }
 
+    // ✅ ensure DB match doc exists for stats/history queries
+    await ensureMatchDocExists({ matchId, p1, p2 });
+
     const loserId = win === p1 ? p2 : win === p2 ? p1 : null;
     if (!loserId) return;
 
     // ✅ idempotent via PointsLedger unique index
-    // ✅ awards POINTS only; coins are claimed later via /api/economy/claim
+    // ✅ updates winner/loser gamingStats too (wins/losses/streak)
     await awardMatchResult({
       matchId,
       winnerId: win,
@@ -160,66 +216,6 @@ async function awardIfPossible({ matchId, winnerId, reason, st }) {
   } catch (e) {
     console.error("Economy award failed:", e?.message || e);
   }
-}
-
-function displayNameFromUser(u, fallbackId) {
-  const username = safeStr(u?.username);
-  const name = safeStr(u?.name);
-  return username || name || (fallbackId ? fallbackId : "Player");
-}
-
-async function resolveNamesForUserIds(userIds) {
-  const ids = Array.from(
-    new Set((userIds || []).map((x) => safeStr(x)).filter(Boolean))
-  );
-
-  const map = new Map(); // id -> displayName
-  if (ids.length === 0) return map;
-
-  try {
-    const users = await User.find({ _id: { $in: ids } })
-      .select("username name")
-      .lean();
-
-    for (const u of users || []) {
-      const id = safeStr(u?._id);
-      if (!id) continue;
-      map.set(id, displayNameFromUser(u, id));
-    }
-  } catch (e) {
-    console.error("resolveNamesForUserIds failed:", e?.message || e);
-  }
-
-  // ensure all ids exist in map (fallback)
-  for (const id of ids) {
-    if (!map.has(id)) map.set(id, id);
-  }
-
-  return map;
-}
-
-async function emitMatchFinished(io, matchId, st, winnerId, reason) {
-  const mid = safeStr(matchId);
-  const win = safeStr(winnerId);
-  if (!mid || !win) return;
-
-  // Determine loser using known players
-  const p1 = safeStr(st?.playerOneId);
-  const p2 = safeStr(st?.playerTwoId);
-  const loserId = win === p1 ? p2 : win === p2 ? p1 : "";
-
-  const names = await resolveNamesForUserIds([win, loserId]);
-  const winnerName = names.get(win) || win;
-  const loserName = loserId ? (names.get(loserId) || loserId) : "";
-
-  io.to(room(mid)).emit("checkers:match_finished", {
-    matchId: mid,
-    winnerId: win,
-    winnerName,
-    loserId: loserId || null,
-    loserName: loserName || null,
-    reason: reason || "normal",
-  });
 }
 
 export function bindCheckersSockets(io) {
@@ -242,14 +238,17 @@ export function bindCheckersSockets(io) {
         socket.join(room(matchId));
         socketSession.set(socket.id, { matchId, userId: authedUserId });
 
-        // Resolve players from DB match (if exists)
+        // Resolve players from DB match (if exists) — supports matchId OR _id
         let p1 = null;
         let p2 = null;
 
-        const m = await Match.findOne({ matchId }).select("players").lean();
-        if (m?.players?.length >= 2) {
-          p1 = m.players[0]?.userId?.toString?.() || null;
-          p2 = m.players[1]?.userId?.toString?.() || null;
+        const q = matchQuery(matchId);
+        if (q) {
+          const m = await Match.findOne(q).select("players").lean();
+          if (m?.players?.length >= 2) {
+            p1 = m.players[0]?.userId?.toString?.() || null;
+            p2 = m.players[1]?.userId?.toString?.() || null;
+          }
         }
 
         const st = checkersStore.ensure(matchId, {
@@ -266,15 +265,15 @@ export function bindCheckersSockets(io) {
         }
 
         if (st.playerOneId && st.playerTwoId) {
-          if (
-            authedUserId !== st.playerOneId &&
-            authedUserId !== st.playerTwoId
-          ) {
+          if (authedUserId !== st.playerOneId && authedUserId !== st.playerTwoId) {
             const err = new Error("You are not in this match");
             err.code = "NOT_IN_MATCH";
             throw err;
           }
         }
+
+        // ✅ best-effort: create DB match if missing (helps history/stats)
+        await ensureMatchDocExists({ matchId, p1: st.playerOneId, p2: st.playerTwoId });
 
         checkersStore.markConnected(matchId, authedUserId);
 
@@ -321,7 +320,12 @@ export function bindCheckersSockets(io) {
               const finalSt = checkersStore.forfeit(mid, opp);
               if (!finalSt) return;
 
-              await emitMatchFinished(io, mid, finalSt, opp, "left_match");
+              io.to(room(mid)).emit("checkers:match_finished", {
+                matchId: mid,
+                winner: opp,
+                reason: "left_match",
+              });
+
               emitStateToRoom(io, mid, finalSt);
 
               await markMatchCompleted({ matchId: mid, winnerId: opp });
@@ -442,7 +446,11 @@ export function bindCheckersSockets(io) {
         });
 
         if (next.gameEnded && next.winner) {
-          await emitMatchFinished(io, matchId, next, next.winner, "normal");
+          io.to(room(matchId)).emit("checkers:match_finished", {
+            matchId,
+            winner: next.winner,
+            reason: "normal",
+          });
 
           await markMatchCompleted({ matchId, winnerId: next.winner });
           await awardIfPossible({
@@ -479,26 +487,28 @@ export function bindCheckersSockets(io) {
           userId,
           GRACE_MS,
           async ({ matchId: mid, userId: uid }) => {
-            const opp = checkersStore.getOpponentId(mid, uid);
-            if (!opp) return;
+            const opp = checkersStore.getOpponentOpponentId
+              ? checkersStore.getOpponentOpponentId(mid, uid)
+              : checkersStore.getOpponentId(mid, uid);
 
-            const finalSt = checkersStore.forfeit(mid, opp);
+            const oppId = opp;
+            if (!oppId) return;
+
+            const finalSt = checkersStore.forfeit(mid, oppId);
             if (!finalSt) return;
 
-            await emitMatchFinished(
-              io,
-              mid,
-              finalSt,
-              opp,
-              "opponent_disconnected"
-            );
+            io.to(room(mid)).emit("checkers:match_finished", {
+              matchId: mid,
+              winner: oppId,
+              reason: "opponent_disconnected",
+            });
 
             emitStateToRoom(io, mid, finalSt);
 
-            await markMatchCompleted({ matchId: mid, winnerId: opp });
+            await markMatchCompleted({ matchId: mid, winnerId: oppId });
             await awardIfPossible({
               matchId: mid,
-              winnerId: opp,
+              winnerId: oppId,
               reason: "opponent_disconnected",
               st: finalSt,
             });
