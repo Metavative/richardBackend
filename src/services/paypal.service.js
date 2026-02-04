@@ -19,8 +19,8 @@ export const createPayPalOrder = async (price) => {
       }
     }],
     application_context: {
-      return_url: 'https://your-domain.com/paypal-success', // Placeholder
-      cancel_url: 'https://your-domain.com/paypal-cancel'
+      return_url: 'https://richardbackend-production-a5dc.up.railway.app/paypal-success', // Placeholder
+      cancel_url: 'https://richardbackend-production-a5dc.up.railway.app/paypal-cancel'
     }
   };
 
