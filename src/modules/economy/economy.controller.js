@@ -153,40 +153,52 @@ export async function claimMyCoins(req, res) {
 // }
 
 
-export async function buyCoins(req, res) {
-  const userId = getAuthedUserId(req);
-  const { packId, price } = req.body;
+// src/modules/economy/economy.controller.js
 
-  // 1. Create Order in PayPal
-  const order = await createPayPalOrder(price);
-  
-  // 2. Return the Approval Link to Flutter
-  const approvalLink = order.links.find(link => link.rel === 'approve').href;
-  
-  return res.ok({
-    orderId: order.id,
-    approvalUrl: approvalLink
-  });
+export async function buyCoins(req, res) {
+  try {
+    const { price } = req.body;
+    if (!price) return res.fail("Price is required");
+
+    const order = await createPayPalOrder(price);
+
+    // The REST API returns links in an array
+    const approvalLink = order.links.find((link) => link.rel === "approve").href;
+
+    return res.ok({
+      orderId: order.id,
+      approvalUrl: approvalLink,
+    });
+  } catch (error) {
+    // Log the detailed error from PayPal if available
+    console.error("PayPal Error:", error.response?.data || error.message);
+    
+    // Always return a response so Flutter doesn't hang!
+    return res.fail("Failed to initiate PayPal order");
+  }
 }
 
-
 export async function captureOrder(req, res) {
-  const userId = getAuthedUserId(req);
-  const { orderId, packId, coins } = req.body; // Added coins to body
+  try {
+    const userId = getAuthedUserId(req);
+    const { orderId, packId, coins } = req.body;
 
-  const capture = await capturePayPalOrder(orderId);
+    const capture = await capturePayPalOrder(orderId);
 
-  if (capture.status === 'COMPLETED') {
-    // � CRITICAL: You must credit the coins here!
-    // Using your existing buyCoinsDev logic but for a real purchase
-    await buyCoinsDev(userId, { packId, coins }); 
-    
-    const snap = await getEconomySnapshot(userId);
-    return res.ok({
-      success: true,
-      economy: snap
-    });
+    if (capture.status === 'COMPLETED') {
+      await buyCoinsDev(userId, { packId, coins }); 
+      const snap = await getEconomySnapshot(userId);
+      
+      return res.ok({
+        success: true,
+        message: "Payment captured and coins added!",
+        economy: snap
+      });
+    }
+
+    return res.fail("Payment status: " + (capture.status || "FAILED"));
+  } catch (error) {
+    console.error("PAYPAL_CAPTURE_ERROR:", error);
+    return res.fail("Could not verify payment with PayPal");
   }
-
-  return res.fail("Payment not completed");
 }
