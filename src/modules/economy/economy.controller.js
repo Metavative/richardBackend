@@ -15,17 +15,7 @@ import {
 } from "../../services/paypal.service.js";
 
 function getAuthedUserId(req) {
-  return (
-    req?.userId ||
-    req?.user?.sub ||
-    req?.user?.userId ||
-    req?.user?.id ||
-    null
-  );
-}
-
-function safeMsg(err) {
-  return err?.message?.toString?.() || "UNKNOWN_ERROR";
+  return req?.userId || req?.user?.sub || req?.user?.userId || req?.user?.id || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -33,21 +23,13 @@ function safeMsg(err) {
 // ---------------------------------------------------------------------------
 export async function getMyEconomy(req, res) {
   const userId = getAuthedUserId(req);
-  if (!userId) {
-    const err = new Error("UNAUTHORIZED");
-    err.status = 401;
-    throw err;
-  }
+  if (!userId) return res.fail("UNAUTHORIZED", 401);
 
   const user = await User.findById(userId).select(
     "name username economy gamingStats cosmetics entitlements"
   );
 
-  if (!user) {
-    const err = new Error("USER_NOT_FOUND");
-    err.status = 404;
-    throw err;
-  }
+  if (!user) return res.fail("USER_NOT_FOUND", 404);
 
   const snap = await getEconomySnapshot(user._id);
 
@@ -110,11 +92,7 @@ export async function getMyEconomy(req, res) {
 // ---------------------------------------------------------------------------
 export async function claimMyCoins(req, res) {
   const userId = getAuthedUserId(req);
-  if (!userId) {
-    const err = new Error("UNAUTHORIZED");
-    err.status = 401;
-    throw err;
-  }
+  if (!userId) return res.fail("UNAUTHORIZED", 401);
 
   const result = await claimCoinsFromXp(userId);
 
@@ -127,90 +105,72 @@ export async function claimMyCoins(req, res) {
 }
 
 // ---------------------------------------------------------------------------
-// POST /economy/buy-coins  (PAYPAL CREATE ORDER)
+// POST /economy/buy-coins  (PayPal Create Order)
 // ---------------------------------------------------------------------------
 export async function buyCoins(req, res) {
   try {
     const userId = getAuthedUserId(req);
-    if (!userId) return res.fail("UNAUTHORIZED");
+    if (!userId) return res.fail("UNAUTHORIZED", 401);
 
     const { packId, coins, price } = req.body || {};
+    if (!packId || !coins || !price) {
+      return res.fail("packId, coins, price are required", 400);
+    }
 
-    if (!packId) return res.fail("packId is required");
-    if (coins == null) return res.fail("coins is required");
-    if (price == null) return res.fail("price is required");
-
-    const publicBase =
-      process.env.PUBLIC_BASE_URL ||
-      "https://richardbackend-production-a5dc.up.railway.app";
+    // ✅ In-app WebView redirect targets (WebView intercepts these)
+    const returnUrl = "yourapp://paypal/success";
+    const cancelUrl = "yourapp://paypal/cancel";
 
     const order = await createPayPalOrder({
-      priceUsd: price,
-      returnUrl: `${publicBase}/paypal-success`,
-      cancelUrl: `${publicBase}/paypal-cancel`,
-      brandName: process.env.APP_BRAND_NAME || "Checkers",
+      price,
+      returnUrl,
+      cancelUrl,
     });
 
-    const links = Array.isArray(order?.links) ? order.links : [];
-    const approvalUrl = links.find((l) => l.rel === "approve")?.href;
-
-    if (!approvalUrl) {
-      console.error("PAYPAL_ORDER_NO_APPROVE_LINK:", order);
-      return res.fail("PayPal approval link missing");
-    }
+    const approvalUrl = (order.links || []).find((l) => l.rel === "approve")?.href;
+    if (!approvalUrl) return res.fail("No approval link returned by PayPal", 500);
 
     return res.ok({
       orderId: order.id,
       approvalUrl,
-      packId,
-      coins,
-      price,
     });
   } catch (error) {
-    console.error(
-      "PAYPAL_CREATE_ORDER_ERROR:",
-      safeMsg(error),
-      error?.details || error
-    );
-    return res.fail(`Failed to initiate PayPal order: ${safeMsg(error)}`);
+    console.error("PAYPAL_CREATE_ERROR:", error?.response?.data || error);
+    return res.fail("Failed to initiate PayPal order", 500);
   }
 }
 
 // ---------------------------------------------------------------------------
-// POST /economy/capture-payment (PAYPAL CAPTURE + CREDIT COINS)
+// POST /economy/capture-order  (PayPal Capture + credit coins)
 // ---------------------------------------------------------------------------
 export async function captureOrder(req, res) {
   try {
     const userId = getAuthedUserId(req);
-    if (!userId) return res.fail("UNAUTHORIZED");
+    if (!userId) return res.fail("UNAUTHORIZED", 401);
 
-    const { orderId, packId, coins, price } = req.body || {};
-
-    if (!orderId) return res.fail("orderId is required");
-    if (!packId) return res.fail("packId is required");
-    if (coins == null) return res.fail("coins is required");
+    const { orderId, packId, coins } = req.body || {};
+    if (!orderId || !packId || !coins) {
+      return res.fail("orderId, packId, coins are required", 400);
+    }
 
     const capture = await capturePayPalOrder(orderId);
 
-    const status = capture?.status;
-    if (status !== "COMPLETED") {
-      return res.fail(`Payment status: ${status || "FAILED"}`);
+    if (capture?.status === "COMPLETED") {
+      // ✅ credit coins (your existing dev method)
+      await buyCoinsDev(userId, { packId, coins });
+
+      const snap = await getEconomySnapshot(userId);
+
+      return res.ok({
+        success: true,
+        message: "Payment captured and coins added!",
+        economy: snap,
+      });
     }
 
-    await buyCoinsDev(userId, { packId, coins, price });
-    const snap = await getEconomySnapshot(userId);
-
-    return res.ok({
-      success: true,
-      message: "Payment captured and coins added!",
-      economy: snap,
-    });
+    return res.fail(`Payment status: ${capture?.status || "FAILED"}`, 400);
   } catch (error) {
-    console.error(
-      "PAYPAL_CAPTURE_ERROR:",
-      safeMsg(error),
-      error?.details || error
-    );
-    return res.fail(`Could not verify payment with PayPal: ${safeMsg(error)}`);
+    console.error("PAYPAL_CAPTURE_ERROR:", error?.response?.data || error);
+    return res.fail("Could not verify payment with PayPal", 500);
   }
 }

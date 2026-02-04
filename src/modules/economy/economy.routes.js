@@ -1,5 +1,7 @@
 // src/modules/economy/economy.routes.js
 import express from "express";
+import { authMiddleware } from "../../middleware/auth.middleware.js";
+
 import {
   getMyEconomy,
   claimMyCoins,
@@ -7,20 +9,13 @@ import {
   captureOrder,
 } from "./economy.controller.js";
 
-import { authMiddleware } from "../../middleware/auth.middleware.js";
-
 const router = express.Router();
 
-// GET /api/economy/me
 router.get("/me", authMiddleware, getMyEconomy);
-
-// POST /api/economy/claim
 router.post("/claim", authMiddleware, claimMyCoins);
 
-// POST /api/economy/buy-coins
+// PayPal
 router.post("/buy-coins", authMiddleware, buyCoins);
-
-// POST /api/economy/capture-payment
-router.post("/capture-payment", authMiddleware, captureOrder);
+router.post("/capture-order", authMiddleware, captureOrder);
 
 export default router;

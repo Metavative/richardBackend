@@ -1,122 +1,44 @@
 // src/services/paypal.service.js
 import axios from "axios";
 
-// Use env vars (never hardcode secrets)
-const PAYPAL_BASE_URL =
-  process.env.PAYPAL_BASE_URL || "https://api-m.sandbox.paypal.com";
+const base = process.env.PAYPAL_BASE_URL || "https://api-m.sandbox.paypal.com";
+const clientId = process.env.PAYPAL_CLIENT_ID;
+const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
 
-const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID || "";
-const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET || "";
+async function generateAccessToken() {
+  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
 
-// Hard timeout so the server never hangs.
-const paypalHttp = axios.create({
-  baseURL: PAYPAL_BASE_URL,
-  timeout: Number(process.env.PAYPAL_HTTP_TIMEOUT_MS || 15000),
-  headers: {
-    "Content-Type": "application/json",
-  },
-});
+  const response = await axios({
+    url: `${base}/v1/oauth2/token`,
+    method: "post",
+    data: "grant_type=client_credentials",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    timeout: 15000,
+  });
 
-function requirePaypalEnv() {
-  if (!PAYPAL_CLIENT_ID || !PAYPAL_CLIENT_SECRET) {
-    const err = new Error("PAYPAL_ENV_MISSING");
-    err.status = 500;
-    err.details = {
-      missing: [
-        !PAYPAL_CLIENT_ID ? "PAYPAL_CLIENT_ID" : null,
-        !PAYPAL_CLIENT_SECRET ? "PAYPAL_CLIENT_SECRET" : null,
-      ].filter(Boolean),
-    };
-    throw err;
-  }
+  return response.data.access_token;
 }
 
-function pickAxiosError(err) {
-  return {
-    message: err?.message,
-    code: err?.code,
-    status: err?.response?.status,
-    data: err?.response?.data,
-  };
-}
-
-// Simple in-memory token cache (reduces PayPal calls)
-let _cachedToken = null; // { token: string, expiresAtMs: number }
-
-export async function generateAccessToken() {
-  requirePaypalEnv();
-
-  // Return cached token if still valid (with 20s safety buffer)
-  const now = Date.now();
-  if (_cachedToken && _cachedToken.expiresAtMs - 20000 > now) {
-    return _cachedToken.token;
-  }
-
-  try {
-    const auth = Buffer.from(
-      `${PAYPAL_CLIENT_ID}:${PAYPAL_CLIENT_SECRET}`
-    ).toString("base64");
-
-    // IMPORTANT: PayPal token endpoint expects form encoding
-    const res = await paypalHttp.post(
-      "/v1/oauth2/token",
-      "grant_type=client_credentials",
-      {
-        headers: {
-          Authorization: `Basic ${auth}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-      }
-    );
-
-    const token = res?.data?.access_token;
-    const expiresIn = Number(res?.data?.expires_in || 0);
-
-    if (!token) {
-      const err = new Error("PAYPAL_TOKEN_MISSING");
-      err.status = 502;
-      err.details = { response: res?.data };
-      throw err;
-    }
-
-    _cachedToken = {
-      token,
-      expiresAtMs: Date.now() + Math.max(0, expiresIn) * 1000,
-    };
-
-    return token;
-  } catch (err) {
-    const e = new Error("PAYPAL_TOKEN_REQUEST_FAILED");
-    e.status = 502;
-    e.details = pickAxiosError(err);
-    throw e;
-  }
-}
-
-export async function createPayPalOrder({
-  priceUsd,
-  returnUrl,
-  cancelUrl,
-  brandName,
-}) {
+export async function createPayPalOrder({ price, returnUrl, cancelUrl }) {
   const accessToken = await generateAccessToken();
 
-  const value = Number(priceUsd);
-  if (!Number.isFinite(value) || value <= 0) {
-    const err = new Error("INVALID_PRICE");
-    err.status = 400;
-    err.details = { priceUsd };
-    throw err;
-  }
-
-  try {
-    const payload = {
+  const response = await axios({
+    url: `${base}/v2/checkout/orders`,
+    method: "post",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    data: {
       intent: "CAPTURE",
       purchase_units: [
         {
           amount: {
             currency_code: "USD",
-            value: value.toFixed(2),
+            value: Number(price).toFixed(2),
           },
         },
       ],
@@ -125,45 +47,26 @@ export async function createPayPalOrder({
         cancel_url: cancelUrl,
         shipping_preference: "NO_SHIPPING",
         user_action: "PAY_NOW",
-        ...(brandName ? { brand_name: brandName } : {}),
       },
-    };
+    },
+    timeout: 15000,
+  });
 
-    const res = await paypalHttp.post("/v2/checkout/orders", payload, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-
-    return res.data;
-  } catch (err) {
-    const e = new Error("PAYPAL_CREATE_ORDER_FAILED");
-    e.status = 502;
-    e.details = pickAxiosError(err);
-    throw e;
-  }
+  return response.data;
 }
 
 export async function capturePayPalOrder(orderId) {
   const accessToken = await generateAccessToken();
 
-  if (!orderId || String(orderId).trim().length < 5) {
-    const err = new Error("ORDER_ID_REQUIRED");
-    err.status = 400;
-    err.details = { orderId };
-    throw err;
-  }
+  const response = await axios({
+    url: `${base}/v2/checkout/orders/${orderId}/capture`,
+    method: "post",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    timeout: 15000,
+  });
 
-  try {
-    const res = await paypalHttp.post(
-      `/v2/checkout/orders/${orderId}/capture`,
-      {},
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-
-    return res.data;
-  } catch (err) {
-    const e = new Error("PAYPAL_CAPTURE_FAILED");
-    e.status = 502;
-    e.details = pickAxiosError(err);
-    throw e;
-  }
+  return response.data;
 }
