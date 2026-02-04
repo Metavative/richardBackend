@@ -1,10 +1,19 @@
 // src/services/paypal.service.js
 import axios from "axios";
 
-const base = process.env.PAYPAL_BASE_URL || "https://api-m.sandbox.paypal.com";
+const base =
+  process.env.PAYPAL_BASE_URL || "https://api-m.sandbox.paypal.com";
+
 const clientId = process.env.PAYPAL_CLIENT_ID;
 const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
 
+if (!clientId || !clientSecret) {
+  console.error("❌ PAYPAL CLIENT ID / SECRET NOT SET");
+}
+
+// ---------------------------------------------------------------------------
+// OAuth2
+// ---------------------------------------------------------------------------
 async function generateAccessToken() {
   const auth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
 
@@ -22,7 +31,18 @@ async function generateAccessToken() {
   return response.data.access_token;
 }
 
-export async function createPayPalOrder({ price, returnUrl, cancelUrl }) {
+// ---------------------------------------------------------------------------
+// CREATE ORDER
+// ---------------------------------------------------------------------------
+export async function createPayPalOrder({
+  price,
+  returnUrl,
+  cancelUrl,
+}) {
+  if (!price || !returnUrl || !cancelUrl) {
+    throw new Error("Missing price / returnUrl / cancelUrl");
+  }
+
   const accessToken = await generateAccessToken();
 
   const response = await axios({
@@ -43,8 +63,8 @@ export async function createPayPalOrder({ price, returnUrl, cancelUrl }) {
         },
       ],
       application_context: {
-        return_url: returnUrl,
-        cancel_url: cancelUrl,
+        return_url: returnUrl,   // � intercepted by WebView
+        cancel_url: cancelUrl,   // � intercepted by WebView
         shipping_preference: "NO_SHIPPING",
         user_action: "PAY_NOW",
       },
@@ -55,7 +75,14 @@ export async function createPayPalOrder({ price, returnUrl, cancelUrl }) {
   return response.data;
 }
 
+// ---------------------------------------------------------------------------
+// CAPTURE ORDER
+// ---------------------------------------------------------------------------
 export async function capturePayPalOrder(orderId) {
+  if (!orderId) {
+    throw new Error("orderId is required");
+  }
+
   const accessToken = await generateAccessToken();
 
   const response = await axios({
