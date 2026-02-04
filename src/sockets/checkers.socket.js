@@ -1,5 +1,6 @@
 // src/sockets/checkers.socket.js
 import Match from "../models/Match.js";
+import User from "../models/User.js";
 import { checkersStore } from "../stores/checkers.store.js";
 import { awardMatchResult } from "../services/economy.service.js";
 
@@ -15,7 +16,7 @@ import { awardMatchResult } from "../services/economy.service.js";
  *  - checkers:move_applied
  *  - checkers:error
  *  - checkers:player_status   { matchId, userId, status: 'disconnected'|'connected', expiresAt? }
- *  - checkers:match_finished  { matchId, winner, reason }
+ *  - checkers:match_finished  { matchId, winnerId, winnerName, loserId, loserName, reason }
  */
 
 const GRACE_MS = 60_000;
@@ -161,6 +162,66 @@ async function awardIfPossible({ matchId, winnerId, reason, st }) {
   }
 }
 
+function displayNameFromUser(u, fallbackId) {
+  const username = safeStr(u?.username);
+  const name = safeStr(u?.name);
+  return username || name || (fallbackId ? fallbackId : "Player");
+}
+
+async function resolveNamesForUserIds(userIds) {
+  const ids = Array.from(
+    new Set((userIds || []).map((x) => safeStr(x)).filter(Boolean))
+  );
+
+  const map = new Map(); // id -> displayName
+  if (ids.length === 0) return map;
+
+  try {
+    const users = await User.find({ _id: { $in: ids } })
+      .select("username name")
+      .lean();
+
+    for (const u of users || []) {
+      const id = safeStr(u?._id);
+      if (!id) continue;
+      map.set(id, displayNameFromUser(u, id));
+    }
+  } catch (e) {
+    console.error("resolveNamesForUserIds failed:", e?.message || e);
+  }
+
+  // ensure all ids exist in map (fallback)
+  for (const id of ids) {
+    if (!map.has(id)) map.set(id, id);
+  }
+
+  return map;
+}
+
+async function emitMatchFinished(io, matchId, st, winnerId, reason) {
+  const mid = safeStr(matchId);
+  const win = safeStr(winnerId);
+  if (!mid || !win) return;
+
+  // Determine loser using known players
+  const p1 = safeStr(st?.playerOneId);
+  const p2 = safeStr(st?.playerTwoId);
+  const loserId = win === p1 ? p2 : win === p2 ? p1 : "";
+
+  const names = await resolveNamesForUserIds([win, loserId]);
+  const winnerName = names.get(win) || win;
+  const loserName = loserId ? (names.get(loserId) || loserId) : "";
+
+  io.to(room(mid)).emit("checkers:match_finished", {
+    matchId: mid,
+    winnerId: win,
+    winnerName,
+    loserId: loserId || null,
+    loserName: loserName || null,
+    reason: reason || "normal",
+  });
+}
+
 export function bindCheckersSockets(io) {
   // cleanup old in-memory states every 5 minutes
   setInterval(() => {
@@ -205,7 +266,10 @@ export function bindCheckersSockets(io) {
         }
 
         if (st.playerOneId && st.playerTwoId) {
-          if (authedUserId !== st.playerOneId && authedUserId !== st.playerTwoId) {
+          if (
+            authedUserId !== st.playerOneId &&
+            authedUserId !== st.playerTwoId
+          ) {
             const err = new Error("You are not in this match");
             err.code = "NOT_IN_MATCH";
             throw err;
@@ -257,12 +321,7 @@ export function bindCheckersSockets(io) {
               const finalSt = checkersStore.forfeit(mid, opp);
               if (!finalSt) return;
 
-              io.to(room(mid)).emit("checkers:match_finished", {
-                matchId: mid,
-                winner: opp,
-                reason: "left_match",
-              });
-
+              await emitMatchFinished(io, mid, finalSt, opp, "left_match");
               emitStateToRoom(io, mid, finalSt);
 
               await markMatchCompleted({ matchId: mid, winnerId: opp });
@@ -383,11 +442,7 @@ export function bindCheckersSockets(io) {
         });
 
         if (next.gameEnded && next.winner) {
-          io.to(room(matchId)).emit("checkers:match_finished", {
-            matchId,
-            winner: next.winner,
-            reason: "normal",
-          });
+          await emitMatchFinished(io, matchId, next, next.winner, "normal");
 
           await markMatchCompleted({ matchId, winnerId: next.winner });
           await awardIfPossible({
@@ -430,11 +485,13 @@ export function bindCheckersSockets(io) {
             const finalSt = checkersStore.forfeit(mid, opp);
             if (!finalSt) return;
 
-            io.to(room(mid)).emit("checkers:match_finished", {
-              matchId: mid,
-              winner: opp,
-              reason: "opponent_disconnected",
-            });
+            await emitMatchFinished(
+              io,
+              mid,
+              finalSt,
+              opp,
+              "opponent_disconnected"
+            );
 
             emitStateToRoom(io, mid, finalSt);
 

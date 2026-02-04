@@ -1,18 +1,13 @@
 // src/routes/index.js
 import express from "express";
 import { responseMiddleware } from "../middleware/response.middleware.js";
-
 import authRoutes from "./authRoutes.js";
 import userRoutes from "./userRoutes.js";
 import friendRoutes from "./friendroutes.js";
 import challengeRoutes from "./challengeRoutes.js";
 import presenceRoutes from "./presenceRoutes.js";
 import aiCoachRoutes from "./aiCoachRoutes.js";
-
-// ✅ Keep ONLY this one
 import matchmakingRoutes from "./matchmakingRoutes.js";
-
-// ✅ NEW
 import profileRoutes from "../modules/profile/profile.routes.js";
 import cosmeticsRoutes from "../modules/cosmetics/cosmetics.routes.js";
 import economyRoutes from "../modules/economy/economy.routes.js";
@@ -41,8 +36,6 @@ router.use("/challenges", challengeRoutes);
 router.use("/matchmaking", matchmakingRoutes);
 router.use("/presence", presenceRoutes);
 router.use("/ai-coach", aiCoachRoutes);
-
-// ✅ NEW MODULES
 router.use("/profile", profileRoutes);
 router.use("/cosmetics", cosmeticsRoutes);
 router.use("/economy", economyRoutes);
