@@ -386,3 +386,36 @@ export async function fetchUsers(req, res, next) {
     next(err);
   }
 }
+// ---------- DELETE ACCOUNT ----------
+export async function deleteAccount(req, res, next) {
+  try {
+    // 1. In your routes, you MUST use requireAuth before this function.
+    // Therefore, req.user.sub is guaranteed to be the logged-in user's ID.
+    const userId = req.user.sub;
+
+    const user = await User.findById(userId);
+    if (!user) return next(createError(404, "User not found"));
+
+    // 2. Cleanup: Delete related data so you don't leave "orphaned" documents
+    // This aligns with how you handle VerificationCodes in other functions
+    await Promise.all([
+      VerificationCode.deleteMany({ userId }),
+      PasswordResetCode.deleteMany({ userId }),
+      // If you have Posts or other models, delete them here too
+    ]);
+
+    // 3. Final Delete
+    await user.deleteOne();
+
+    // 4. (Optional) Clear the refresh token cookie if it's a web user
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? "strict" : "lax",
+    });
+
+    return res.json({ message: "Account successfully deleted" });
+  } catch (err) {
+    next(err);
+  }
+}

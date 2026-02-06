@@ -4,6 +4,7 @@ import { body } from "express-validator";
 import { authLimiter, sensitiveLimiter } from "../middleware/rateLimiters.js";
 import { validateRequest } from "../middleware/validateRequest.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { requireAuth } from "../middleware/auth.middleware.js";
 
 import {
   register,
@@ -16,6 +17,7 @@ import {
   resetPassword,
   selectRole,
   fetchUsers,
+  deleteAccount
 } from "../controllers/authController.js";
 
 const router = Router();
@@ -134,5 +136,7 @@ router.post(
 
 // FETCH USERS
 router.get("/fetchUsers", asyncHandler(fetchUsers));
+
+router.delete("/delete-account", requireAuth, deleteAccount);
 
 export default router;
