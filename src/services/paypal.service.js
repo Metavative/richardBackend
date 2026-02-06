@@ -57,7 +57,7 @@ export async function createPayPalOrder({
       purchase_units: [
         {
           amount: {
-            currency_code: "USD",
+            currency_code: "GBP",
             value: Number(price).toFixed(2),
           },
         },
