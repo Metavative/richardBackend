@@ -4,7 +4,7 @@ import { body } from "express-validator";
 import { authLimiter, sensitiveLimiter } from "../middleware/rateLimiters.js";
 import { validateRequest } from "../middleware/validateRequest.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { requireAuth } from "../middleware/auth.middleware.js";
+import { requireAuth } from "../middleware/auth.js";
 
 import {
   register,
