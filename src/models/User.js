@@ -7,7 +7,6 @@ const unlockedAchievementSchema = new mongoose.Schema(
   {
     key: { type: String, required: true },
     unlockedAt: { type: Date, default: Date.now },
-    // Optional: record why it unlocked (match/points milestone/etc)
     source: { type: String, default: "" },
   },
   { _id: false }
@@ -17,7 +16,10 @@ const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
 
-    // NOTE: unique + sparse can allow multiple nulls, which is OK if username is optional
+    // ✅ chosen display name shown in app
+    nickname: { type: String, trim: true, default: "" },
+
+    // NOTE: unique + sparse can allow multiple nulls
     username: { type: String, unique: true, sparse: true, trim: true },
 
     email: {
@@ -29,7 +31,6 @@ const userSchema = new mongoose.Schema(
       validate: [validator.isEmail, "Invalid email"],
     },
 
-    // password is select:false so it won't be returned by default
     password: { type: String, required: true, minlength: 8, select: false },
 
     emailVerified: { type: Boolean, default: false },
@@ -47,7 +48,6 @@ const userSchema = new mongoose.Schema(
 
     refreshToken: { type: String, select: false },
 
-    // ✅ NEW: Monetization entitlements (ads + premium AI)
     entitlements: {
       adFree: { type: Boolean, default: false },
       premiumAI: { type: Boolean, default: false },
@@ -58,27 +58,17 @@ const userSchema = new mongoose.Schema(
       appliedPiecesId: { type: String, default: "" },
     },
 
-    // ============================
-    // ECONOMY / PROGRESSION
-    // ============================
-    // Points (XP): earned from matches + achievements, also unlocks achievements
-    // Coins: spendable currency to buy skins
     economy: {
       pointsBalance: { type: Number, default: 0, min: 0 },
       coinsBalance: { type: Number, default: 0, min: 0 },
 
-      // lifetime totals are helpful for analytics + achievement conditions
       lifetimePointsEarned: { type: Number, default: 0, min: 0 },
       lifetimeCoinsEarned: { type: Number, default: 0, min: 0 },
 
-      // optional: track last time we awarded points to avoid weird duplicates
       lastPointsAwardAt: { type: Date },
-
-      // track how many lifetime points have already been used to claim coins
       lastCoinClaimPoints: { type: Number, default: 0, min: 0 },
     },
 
-    // Achievement tracking:
     unlockedAchievements: { type: [unlockedAchievementSchema], default: [] },
 
     achievementProgress: {
@@ -87,7 +77,6 @@ const userSchema = new mongoose.Schema(
       default: {},
     },
 
-    // ============ GAMING FIELDS ============
     gamingStats: {
       mmr: { type: Number, default: 1000, min: 0 },
       wins: { type: Number, default: 0 },
@@ -120,12 +109,13 @@ const userSchema = new mongoose.Schema(
     currentMatchId: { type: String, default: null },
     lastMatchAt: { type: Date },
     socketId: { type: String, default: null },
-    // =======================================
   },
   { timestamps: true }
 );
 
 userSchema.index({ name: 1 });
+userSchema.index({ nickname: 1 });
+userSchema.index({ username: 1 });
 userSchema.index({ "gamingStats.mmr": -1 });
 
 userSchema.set("toJSON", {
@@ -204,13 +194,21 @@ userSchema.methods.addDraw = function () {
 };
 
 userSchema.methods.getPublicProfile = function () {
+  const displayName =
+    (this.nickname && String(this.nickname).trim()) ||
+    (this.username && String(this.username).trim()) ||
+    (this.name && String(this.name).trim()) ||
+    "Player";
+
+  const profilePic = this.profile_picture?.url || null;
+
   return {
     id: this._id?.toString(),
+    displayName,
+    nickname: this.nickname || "",
     name: this.name,
     username: this.username,
-    profile_picture: this.profile_picture?.url
-      ? { url: this.profile_picture.url }
-      : null,
+    profilePic,
     gamingStats: {
       mmr: this.gamingStats?.mmr ?? 1000,
       wins: this.gamingStats?.wins ?? 0,

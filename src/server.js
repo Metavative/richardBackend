@@ -14,6 +14,7 @@ import { connectDB } from "./config/db.js";
 import routes from "./routes/index.js";
 import { initializeMatchmaking } from "./controllers/matchmakingController.js";
 import { initSockets } from "./sockets/index.js";
+import { setIO } from "./sockets/realtime.js"; // ✅ NEW
 import { errorHandler, notFound } from "./middleware/error.middleware.js";
 import { requestIdMiddleware } from "./middleware/requestId.middleware.js";
 
@@ -112,10 +113,13 @@ export const io = new Server(server, {
   },
 });
 
+// ✅ NEW: store io for REST emits (no circular imports)
+setIO(io);
+
 // ✅ Keep your existing matchmaking
 const matchmakingService = initializeMatchmaking(io);
 
-// ✅ Add all realtime systems (presence + challenges + checkers)
+// ✅ Add all realtime systems (presence + challenges + checkers + friends)
 initSockets(io, { matchmakingService });
 
 // ---------- START ----------
@@ -124,7 +128,7 @@ try {
   console.log("✅ MongoDB connected");
 
   server.listen(env.PORT, () => {
-    console.log(`� Server running on port: ${env.PORT}`);
+    console.log(`🟢 Server running on port: ${env.PORT}`);
   });
 } catch (err) {
   console.error("❌ Startup error:", err.message);
