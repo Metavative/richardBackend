@@ -1,10 +1,12 @@
 // src/routes/authRoutes.js
 import { Router } from "express";
+import createError from "http-errors";
 import { body } from "express-validator";
 import { authLimiter, sensitiveLimiter } from "../middleware/rateLimiters.js";
 import { validateRequest } from "../middleware/validateRequest.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { requireAuth } from "../middleware/auth.js";
+import { upload } from "../middleware/upload.js";
 
 import {
   register,
@@ -17,15 +19,27 @@ import {
   resetPassword,
   selectRole,
   fetchUsers,
-  deleteAccount
+  deleteAccount,
 } from "../controllers/authController.js";
 
 const router = Router();
 
+// ✅ helper: enable multipart for register (custom avatar upload)
+function registerUpload(req, res, next) {
+  upload.single("profilePic")(req, res, (err) => {
+    if (err) return next(createError(400, err.message));
+    next();
+  });
+}
+
 // REGISTER
+// ✅ requires username + profile picture (preset or uploaded file)
+// - preset: profilePicUrl/profilePic in body
+// - upload: profilePic file
 router.post(
   "/register",
   authLimiter,
+  registerUpload,
   [
     body("name").optional().trim(),
     body("email").trim().isEmail().withMessage("Email format incorrect"),
@@ -36,6 +50,25 @@ router.post(
       .withMessage("Password must contain at least one letter")
       .matches(/\d/)
       .withMessage("Password must contain at least one number"),
+
+    body("username")
+      .trim()
+      .notEmpty()
+      .withMessage("Username is required")
+      .matches(/^[a-z0-9_]{3,20}$/i)
+      .withMessage(
+        "Username must be 3-20 chars and contain only letters, numbers, or underscore"
+      ),
+
+    // If no file uploaded, require a preset value
+    body("profilePicUrl")
+      .optional()
+      .isString()
+      .withMessage("profilePicUrl must be a string"),
+    body("profilePic")
+      .optional()
+      .isString()
+      .withMessage("profilePic must be a string"),
   ],
   validateRequest,
   asyncHandler(register)
@@ -74,9 +107,7 @@ router.post(
   asyncHandler(resendVerification)
 );
 
-// REFRESH TOKENS
-// ✅ refreshToken is optional in body because cookie may exist (web)
-// mobile will send it in body
+// REFRESH
 router.post(
   "/refresh",
   sensitiveLimiter,
@@ -94,7 +125,7 @@ router.post(
   asyncHandler(logout)
 );
 
-// FORGOT PASSWORD (expects { email })
+// FORGOT PASSWORD
 router.post(
   "/forgot-password",
   sensitiveLimiter,
@@ -103,7 +134,7 @@ router.post(
   asyncHandler(forgotPassword)
 );
 
-// RESET PASSWORD (expects { uid, code, password })
+// RESET PASSWORD
 router.post(
   "/reset-password",
   sensitiveLimiter,
@@ -122,7 +153,7 @@ router.post(
   asyncHandler(resetPassword)
 );
 
-// SELECT ROLE (expects { email, role })
+// SELECT ROLE
 router.post(
   "/select-role",
   authLimiter,

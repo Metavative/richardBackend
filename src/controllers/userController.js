@@ -3,6 +3,14 @@ import createError from "http-errors";
 import mongoose from "mongoose";
 import User from "../models/User.js";
 
+function normUsername(v) {
+  return String(v ?? "").trim().toLowerCase();
+}
+function isValidUsername(username) {
+  const u = normUsername(username);
+  return /^[a-z0-9_]{3,20}$/.test(u);
+}
+
 function safeUserOut(u, { includeEmail = false, includeRole = false } = {}) {
   if (!u) return null;
 
@@ -31,10 +39,6 @@ function safeUserOut(u, { includeEmail = false, includeRole = false } = {}) {
   return out;
 }
 
-/**
- * GET /api/users/me
- * Auth required
- */
 export async function getMe(req, res) {
   const userId = req.userId;
 
@@ -49,10 +53,6 @@ export async function getMe(req, res) {
   });
 }
 
-/**
- * GET /api/users/:id
- * Public-safe profile (no email)
- */
 export async function getPublicProfile(req, res) {
   const id = String(req.params.id || "").trim();
 
@@ -61,7 +61,9 @@ export async function getPublicProfile(req, res) {
   }
 
   const user = await User.findById(id)
-    .select("_id name nickname username profile_picture bio isOnline gamingStats economy entitlements")
+    .select(
+      "_id name nickname username profile_picture bio isOnline gamingStats economy entitlements"
+    )
     .lean();
 
   if (!user) throw createError(404, "User not found");
@@ -92,10 +94,6 @@ export async function getPublicProfile(req, res) {
   });
 }
 
-/**
- * GET /api/users/search?q=...
- * Auth required
- */
 export async function searchUsers(req, res) {
   const q = String(req.query.q || "").trim();
   if (!q) return res.status(200).json({ users: [] });
@@ -122,16 +120,58 @@ export async function searchUsers(req, res) {
 
 /**
  * PUT /api/users/edit
- * Auth required
+ * Supports:
+ * - name, nickname, bio
+ * - username (validated + unique)
+ * - profile picture:
+ *    - uploaded file: profilePic (multer)
+ *    - preset string: profilePicUrl/profilePic/profile_picture
  */
 export async function editProfile(req, res) {
   const userId = req.userId;
 
   const updates = {};
+
   if (req.body?.name) updates.name = String(req.body.name).trim();
   if (req.body?.nickname) updates.nickname = String(req.body.nickname).trim();
   if (req.body?.bio) updates.bio = String(req.body.bio).trim();
 
+  // ✅ allow username change
+  if (req.body?.username != null) {
+    const u = normUsername(req.body.username);
+    if (!u || !isValidUsername(u)) {
+      throw createError(
+        400,
+        "Username must be 3-20 characters and contain only letters, numbers, or underscores"
+      );
+    }
+
+    const exists = await User.findOne({
+      username: u,
+      _id: { $ne: userId },
+    })
+      .select("_id")
+      .lean();
+
+    if (exists) throw createError(409, "Username already in use");
+
+    updates.username = u;
+  }
+
+  // ✅ preset avatar url/key without upload
+  const bodyPic =
+    req.body?.profilePicUrl ||
+    req.body?.profilePic ||
+    req.body?.profile_picture?.url ||
+    req.body?.profile_picture;
+
+  if (!req.file && bodyPic != null) {
+    const url = String(bodyPic).trim();
+    if (!url) throw createError(400, "Profile picture URL cannot be empty");
+    updates.profile_picture = { key: "", url };
+  }
+
+  // ✅ custom uploaded avatar
   if (req.file) {
     updates.profile_picture = {
       key: req.file.filename,
@@ -139,7 +179,11 @@ export async function editProfile(req, res) {
     };
   }
 
-  const user = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true })
+  const user = await User.findByIdAndUpdate(
+    userId,
+    { $set: updates },
+    { new: true, runValidators: true }
+  )
     .select("_id name nickname username email role profile_picture bio isOnline")
     .lean();
 

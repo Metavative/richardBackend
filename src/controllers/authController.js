@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import createError from "http-errors";
 import { validationResult } from "express-validator";
 
-import User  from "../models/User.js";
+import User from "../models/User.js";
 import { VerificationCode } from "../models/VerificationCode.js";
 import { PasswordResetCode } from "../models/PasswordResetCode.js";
 import { sendEmail } from "../utils/sendEmail.js";
@@ -36,8 +36,16 @@ function normEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+function normUsername(username) {
+  return String(username || "").trim().toLowerCase();
+}
+
+function isValidUsername(username) {
+  const u = normUsername(username);
+  return /^[a-z0-9_]{3,20}$/.test(u);
+}
+
 function pickRefreshToken(req) {
-  // ✅ mobile-safe: accept from body or cookie
   const fromBody = req.body?.refreshToken;
   if (fromBody && String(fromBody).trim()) return String(fromBody).trim();
 
@@ -48,15 +56,70 @@ function pickRefreshToken(req) {
 }
 
 // ---------- REGISTER ----------
+// ✅ Requires: username + profile picture
+// ✅ Supports:
+// - Preset avatar: req.body.profilePicUrl / req.body.profilePic / req.body.profile_picture
+// - Custom upload: req.file (multer)
 export async function register(req, res, next) {
   try {
     assertValid(req);
 
     const { name, email, password } = req.body;
+
+    const usernameRaw = req.body?.username;
+
+    // preset avatar (string key/url) can arrive in many forms
+    const profilePicRaw =
+      req.body?.profilePicUrl ||
+      req.body?.profilePic ||
+      req.body?.profile_picture?.url ||
+      req.body?.profile_picture;
+
     const safeEmail = normEmail(email);
 
     const safeName =
       name && String(name).trim().length > 0 ? String(name).trim() : "Player";
+
+    const safeUsername = normUsername(usernameRaw);
+
+    if (!safeUsername || !isValidUsername(safeUsername)) {
+      return res.status(400).json({
+        message:
+          "Username is required (3-20 chars, letters/numbers/underscore only)",
+      });
+    }
+
+    // ✅ If file upload exists, prefer it
+    let profilePicUrl = "";
+    let profilePicKey = "";
+
+    if (req.file) {
+      profilePicKey = req.file.filename;
+      profilePicUrl = `/uploads/${req.file.filename}`;
+    } else {
+      profilePicUrl = String(profilePicRaw || "").trim();
+      profilePicKey = ""; // preset has no uploaded key
+    }
+
+    if (!profilePicUrl) {
+      return res.status(400).json({
+        message: "Profile picture is required (choose a preset or upload one)",
+      });
+    }
+
+    // ✅ username uniqueness check
+    const existingUsername = await User.findOne({ username: safeUsername })
+      .select("_id emailVerified email")
+      .lean();
+
+    if (existingUsername) {
+      const sameEmail =
+        String(existingUsername.email || "").toLowerCase() === safeEmail;
+
+      if (!sameEmail) {
+        return res.status(409).json({ message: "Username already in use" });
+      }
+    }
 
     let user = await User.findOne({ email: safeEmail });
 
@@ -65,12 +128,26 @@ export async function register(req, res, next) {
         return res.status(409).json({ message: "Email already in use" });
       }
 
+      // update existing unverified user
       user.name = safeName || user.name;
       user.email = safeEmail;
       user.password = password;
+
+      user.username = safeUsername;
+      user.profile_picture = {
+        key: profilePicKey || user.profile_picture?.key || "",
+        url: profilePicUrl,
+      };
+
       await user.save();
     } else {
-      user = await User.create({ name: safeName, email: safeEmail, password });
+      user = await User.create({
+        name: safeName,
+        email: safeEmail,
+        password,
+        username: safeUsername,
+        profile_picture: { key: profilePicKey, url: profilePicUrl },
+      });
     }
 
     await VerificationCode.deleteMany({ userId: user._id });
@@ -96,6 +173,15 @@ export async function register(req, res, next) {
       email: user.email,
     });
   } catch (err) {
+    if (err && err.code === 11000) {
+      const keys = Object.keys(err.keyPattern || {});
+      if (keys.includes("username")) {
+        return res.status(409).json({ message: "Username already in use" });
+      }
+      if (keys.includes("email")) {
+        return res.status(409).json({ message: "Email already in use" });
+      }
+    }
     next(err);
   }
 }
@@ -209,7 +295,6 @@ export async function login(req, res, next) {
     user.refreshToken = refreshToken;
     await user.save({ validateBeforeSave: false });
 
-    // ✅ keep cookie for web, but ALSO return refreshToken for mobile
     res.cookie("refreshToken", refreshToken, {
       httpOnly: true,
       secure: isProd,
@@ -217,14 +302,24 @@ export async function login(req, res, next) {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
+    const displayName =
+      (user.nickname && String(user.nickname).trim()) ||
+      (user.username && String(user.username).trim()) ||
+      (user.name && String(user.name).trim()) ||
+      "Player";
+
     return res.json({
       accessToken,
-      refreshToken, // ✅ important for Flutter
+      refreshToken,
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
+        username: user.username,
+        nickname: user.nickname || "",
+        displayName,
+        profilePic: user.profile_picture?.url || null,
       },
     });
   } catch (err) {
@@ -235,7 +330,6 @@ export async function login(req, res, next) {
 // ---------- REFRESH ----------
 export async function refresh(req, res, next) {
   try {
-    // ✅ accept refresh token from body OR cookie
     const token = pickRefreshToken(req);
     if (!token)
       return res.status(401).json({ message: "Missing refresh token" });
@@ -252,7 +346,6 @@ export async function refresh(req, res, next) {
       email: user.email,
     });
 
-    // (optional) you can rotate refresh tokens later, but keep it simple for now
     return res.json({ accessToken });
   } catch (err) {
     next(err);
@@ -261,7 +354,6 @@ export async function refresh(req, res, next) {
 
 // ---------- LOGOUT ----------
 export async function logout(req, res) {
-  // ✅ accept refresh token from body OR cookie
   const token = pickRefreshToken(req);
 
   if (token) {
@@ -313,12 +405,7 @@ export async function forgotPassword(req, res, next) {
       to: user.email,
       subject: "Reset your password",
       html: `<p>Your password reset code is <b>${raw}</b></p>`,
-    }).catch((err) => {
-      console.error(
-        "❌ Email send failed (forgotPassword):",
-        err?.message || err
-      );
-    });
+    }).catch(() => {});
   } catch (err) {
     next(err);
   }
@@ -380,34 +467,28 @@ export async function selectRole(req, res, next) {
 // ---------- FETCH USERS ----------
 export async function fetchUsers(req, res, next) {
   try {
-    const users = await User.find().select("_id name email role");
+    const users = await User.find().select("_id name email role username");
     return res.json(users);
   } catch (err) {
     next(err);
   }
 }
+
 // ---------- DELETE ACCOUNT ----------
 export async function deleteAccount(req, res, next) {
   try {
-    // 1. In your routes, you MUST use requireAuth before this function.
-    // Therefore, req.user.sub is guaranteed to be the logged-in user's ID.
     const userId = req.user.sub;
 
     const user = await User.findById(userId);
     if (!user) return next(createError(404, "User not found"));
 
-    // 2. Cleanup: Delete related data so you don't leave "orphaned" documents
-    // This aligns with how you handle VerificationCodes in other functions
     await Promise.all([
       VerificationCode.deleteMany({ userId }),
       PasswordResetCode.deleteMany({ userId }),
-      // If you have Posts or other models, delete them here too
     ]);
 
-    // 3. Final Delete
     await user.deleteOne();
 
-    // 4. (Optional) Clear the refresh token cookie if it's a web user
     res.clearCookie("refreshToken", {
       httpOnly: true,
       secure: isProd,

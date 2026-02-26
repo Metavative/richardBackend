@@ -12,6 +12,15 @@ const unlockedAchievementSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Username rules: 3-20 chars, letters/numbers/underscore only
+function normalizeUsername(v) {
+  return String(v ?? "").trim().toLowerCase();
+}
+function isValidUsername(v) {
+  const s = normalizeUsername(v);
+  return /^[a-z0-9_]{3,20}$/.test(s);
+}
+
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
@@ -19,8 +28,23 @@ const userSchema = new mongoose.Schema(
     // ✅ chosen display name shown in app
     nickname: { type: String, trim: true, default: "" },
 
-    // NOTE: unique + sparse can allow multiple nulls
-    username: { type: String, unique: true, sparse: true, trim: true },
+    // ✅ REQUIRED username (unique, normalized)
+    username: {
+      type: String,
+      required: [true, "Username is required"],
+      unique: true,
+      trim: true,
+      lowercase: true,
+      minlength: 3,
+      maxlength: 20,
+      validate: {
+        validator: function (v) {
+          return isValidUsername(v);
+        },
+        message:
+          "Username must be 3-20 characters and contain only letters, numbers, or underscores",
+      },
+    },
 
     email: {
       type: String,
@@ -41,9 +65,14 @@ const userSchema = new mongoose.Schema(
       default: "unassigned",
     },
 
+    // ✅ REQUIRED profile picture (url required)
     profile_picture: {
-      key: { type: String },
-      url: { type: String },
+      key: { type: String, default: "" },
+      url: {
+        type: String,
+        required: [true, "Profile picture is required"],
+        trim: true,
+      },
     },
 
     refreshToken: { type: String, select: false },
@@ -115,7 +144,7 @@ const userSchema = new mongoose.Schema(
 
 userSchema.index({ name: 1 });
 userSchema.index({ nickname: 1 });
-userSchema.index({ username: 1 });
+userSchema.index({ username: 1 }, { unique: true });
 userSchema.index({ "gamingStats.mmr": -1 });
 
 userSchema.set("toJSON", {
@@ -125,6 +154,18 @@ userSchema.set("toJSON", {
     delete ret.__v;
     return ret;
   },
+});
+
+// ✅ normalize username before validation/save
+userSchema.pre("validate", function (next) {
+  try {
+    if (this.isModified("username")) {
+      this.username = normalizeUsername(this.username);
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
 userSchema.pre("save", async function (next) {
