@@ -16,7 +16,7 @@ router.post("/ad-free", requireAuth, buyAdFree);
 
 // ✅ Premium AI canonical
 router.post("/premium-ai", requireAuth, buyPremiumAi);
-
+ 
 // ✅ Aliases for client fallbacks
 router.post("/premiumAI", requireAuth, buyPremiumAi);
 router.post("/premium", requireAuth, buyPremiumAi);

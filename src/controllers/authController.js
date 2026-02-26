@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import createError from "http-errors";
 import { validationResult } from "express-validator";
 
-import { User } from "../models/User.js";
+import User  from "../models/User.js";
 import { VerificationCode } from "../models/VerificationCode.js";
 import { PasswordResetCode } from "../models/PasswordResetCode.js";
 import { sendEmail } from "../utils/sendEmail.js";

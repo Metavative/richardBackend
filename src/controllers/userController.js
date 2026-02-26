@@ -10,18 +10,19 @@ export async function editProfile(req, res) {
   const userId = req.userId;
 
   const updates = {};
-  if (req.body.name) updates.name = req.body.name.trim();
-  if (req.body.bio) updates.bio = req.body.bio.trim();
+  if (req.body?.name) updates.name = String(req.body.name).trim();
+  if (req.body?.bio) updates.bio = String(req.body.bio).trim();
 
   if (req.file) {
-    updates.profilePic = `/uploads/${req.file.filename}`;
+    updates.profile_picture = {
+      key: req.file.filename,
+      url: `/uploads/${req.file.filename}`
+    };
   }
 
-  const user = await User.findByIdAndUpdate(
-    userId,
-    { $set: updates },
-    { new: true }
-  ).select("_id name email role profilePic");
+  const user = await User.findByIdAndUpdate(userId, { $set: updates }, { new: true })
+    .select("_id name email role profile_picture")
+    .lean();
 
   if (!user) {
     throw createError(404, "User not found");
@@ -33,7 +34,7 @@ export async function editProfile(req, res) {
       name: user.name,
       email: user.email,
       role: user.role,
-      profilePic: user.profilePic,
+      profile_picture: user.profile_picture?.url ?? null,
     },
   });
 }

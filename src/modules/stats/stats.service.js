@@ -1,6 +1,6 @@
 // src/modules/stats/stats.service.js
 import Match from "../../models/Match.js";
-import { User } from "../../models/User.js";
+import User  from "../../models/User.js";
 
 function toId(v) {
   if (!v) return "";

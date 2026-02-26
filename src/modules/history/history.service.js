@@ -1,6 +1,6 @@
 // src/modules/history/history.service.js
 import Match from "../../models/Match.js";
-import { User } from "../../models/User.js";
+import  User  from "../../models/User.js";
 
 function toId(v) {
   if (!v) return "";

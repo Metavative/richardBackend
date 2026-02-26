@@ -13,6 +13,34 @@ const router = express.Router();
 // ✅ Auth required for all friend endpoints
 router.use(requireAuth);
 
+// ------------------------------
+// helpers
+// ------------------------------
+function normUserPic(u) {
+  if (!u) return u;
+
+  // Support various common fields + nested profile fields
+  const pic =
+    u.profilePic ||
+    u.avatar ||
+    u.photoUrl ||
+    u.imageUrl ||
+    (u.profile && (u.profile.profilePic || u.profile.avatar || u.profile.photoUrl || u.profile.imageUrl)) ||
+    null;
+
+  // Ensure top-level profilePic always exists (or null)
+  return { ...u, profilePic: pic };
+}
+
+function normalizeFriendRequestRow(r) {
+  if (!r) return r;
+  return {
+    ...r,
+    from: normUserPic(r.from),
+    to: normUserPic(r.to),
+  };
+}
+
 // TEST
 router.get(
   "/test",
@@ -138,11 +166,15 @@ router.get(
     const list = await FriendRequest.find({
       $or: [{ from: userId }, { to: userId }],
     })
-      .populate("from", "username name profilePic")
-      .populate("to", "username name profilePic")
-      .sort({ createdAt: -1 });
+      // include profile so we can normalize nested pics
+      .populate("from", "username name profilePic avatar photoUrl imageUrl profile")
+      .populate("to", "username name profilePic avatar photoUrl imageUrl profile")
+      .sort({ createdAt: -1 })
+      .lean();
 
-    return res.ok({ requests: list });
+    const normalized = (list || []).map(normalizeFriendRequestRow);
+
+    return res.ok({ requests: normalized });
   })
 );
 
@@ -153,11 +185,14 @@ router.get(
   requireRole("admin"),
   asyncHandler(async (_req, res) => {
     const list = await FriendRequest.find()
-      .populate("from", "username name profilePic")
-      .populate("to", "username name profilePic")
-      .sort({ createdAt: -1 });
+      .populate("from", "username name profilePic avatar photoUrl imageUrl profile")
+      .populate("to", "username name profilePic avatar photoUrl imageUrl profile")
+      .sort({ createdAt: -1 })
+      .lean();
 
-    return res.ok({ requests: list });
+    const normalized = (list || []).map(normalizeFriendRequestRow);
+
+    return res.ok({ requests: normalized });
   })
 );
 
