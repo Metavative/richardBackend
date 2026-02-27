@@ -2,6 +2,7 @@
 import createError from "http-errors";
 import mongoose from "mongoose";
 import User from "../models/User.js";
+import { deleteUploadFileByKey } from "../utils/deleteUploadFile.js";
 
 function normUsername(v) {
   return String(v ?? "").trim().toLowerCase();
@@ -125,10 +126,19 @@ export async function searchUsers(req, res) {
  * - username (validated + unique)
  * - profile picture:
  *    - uploaded file: profilePic (multer)
- *    - preset string: profilePicUrl/profilePic/profile_picture
+ *    - preset string: profilePicUrl/profilePic/profile_picture (legacy)
  */
 export async function editProfile(req, res) {
   const userId = req.userId;
+
+  // ✅ Load current user so we can delete old uploaded avatar if replaced
+  const current = await User.findById(userId)
+    .select("_id profile_picture username")
+    .lean();
+
+  if (!current) throw createError(404, "User not found");
+
+  const oldKey = current.profile_picture?.key || "";
 
   const updates = {};
 
@@ -158,23 +168,27 @@ export async function editProfile(req, res) {
     updates.username = u;
   }
 
-  // ✅ preset avatar url/key without upload
+  // ✅ preset avatar url/key without upload (legacy)
   const bodyPic =
     req.body?.profilePicUrl ||
     req.body?.profilePic ||
     req.body?.profile_picture?.url ||
     req.body?.profile_picture;
 
+  let newKey = "";
+
   if (!req.file && bodyPic != null) {
     const url = String(bodyPic).trim();
     if (!url) throw createError(400, "Profile picture URL cannot be empty");
     updates.profile_picture = { key: "", url };
+    newKey = ""; // preset
   }
 
   // ✅ custom uploaded avatar
   if (req.file) {
+    newKey = req.file.filename;
     updates.profile_picture = {
-      key: req.file.filename,
+      key: newKey,
       url: `/uploads/${req.file.filename}`,
     };
   }
@@ -188,6 +202,11 @@ export async function editProfile(req, res) {
     .lean();
 
   if (!user) throw createError(404, "User not found");
+
+  // ✅ Delete old uploaded avatar file if replaced by a new uploaded one
+  if (req.file && oldKey && oldKey !== newKey) {
+    await deleteUploadFileByKey(oldKey);
+  }
 
   return res.status(200).json({
     user: safeUserOut(user, { includeEmail: true, includeRole: true }),

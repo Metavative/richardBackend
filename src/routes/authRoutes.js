@@ -24,7 +24,7 @@ import {
 
 const router = Router();
 
-// ✅ helper: enable multipart for register (custom avatar upload)
+// ✅ helper: enable multipart for register (profile picture upload)
 function registerUpload(req, res, next) {
   upload.single("profilePic")(req, res, (err) => {
     if (err) return next(createError(400, err.message));
@@ -33,9 +33,7 @@ function registerUpload(req, res, next) {
 }
 
 // REGISTER
-// ✅ requires username + profile picture (preset or uploaded file)
-// - preset: profilePicUrl/profilePic in body
-// - upload: profilePic file
+// ✅ requires username + profile picture upload (multipart file "profilePic")
 router.post(
   "/register",
   authLimiter,
@@ -60,15 +58,20 @@ router.post(
         "Username must be 3-20 chars and contain only letters, numbers, or underscore"
       ),
 
-    // If no file uploaded, require a preset value
-    body("profilePicUrl")
-      .optional()
-      .isString()
-      .withMessage("profilePicUrl must be a string"),
-    body("profilePic")
-      .optional()
-      .isString()
-      .withMessage("profilePic must be a string"),
+    // ✅ NEW: require uploaded file
+    body().custom((_, { req }) => {
+      if (!req.file) {
+        throw new Error("Profile picture is required");
+      }
+
+      // Multer filter already enforces image/*, but keep this for safety.
+      const mt = String(req.file.mimetype || "").toLowerCase();
+      if (!mt.startsWith("image/")) {
+        throw new Error("Only image files are allowed");
+      }
+
+      return true;
+    }),
   ],
   validateRequest,
   asyncHandler(register)

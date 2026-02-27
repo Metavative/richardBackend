@@ -15,6 +15,8 @@ import {
   verifyRefreshToken,
 } from "../utils/generateTokens.js";
 
+import { deleteUploadFileByKey } from "../utils/deleteUploadFile.js";
+
 // ---------- helpers ----------
 const make5DigitCode = () => String(crypto.randomInt(10000, 100000));
 const hashToken = (token) =>
@@ -103,7 +105,7 @@ export async function register(req, res, next) {
 
     if (!profilePicUrl) {
       return res.status(400).json({
-        message: "Profile picture is required (choose a preset or upload one)",
+        message: "Profile picture is required",
       });
     }
 
@@ -128,6 +130,10 @@ export async function register(req, res, next) {
         return res.status(409).json({ message: "Email already in use" });
       }
 
+      // ✅ delete old uploaded avatar if user is re-registering unverified
+      // and they uploaded a new file this time
+      const oldKey = user.profile_picture?.key || "";
+
       // update existing unverified user
       user.name = safeName || user.name;
       user.email = safeEmail;
@@ -140,6 +146,12 @@ export async function register(req, res, next) {
       };
 
       await user.save();
+
+      // ✅ If a new file upload happened, delete old file (if different)
+      // Only deletes uploads that were stored as local file keys.
+      if (req.file && oldKey && oldKey !== profilePicKey) {
+        await deleteUploadFileByKey(oldKey);
+      }
     } else {
       user = await User.create({
         name: safeName,
@@ -486,6 +498,11 @@ export async function deleteAccount(req, res, next) {
       VerificationCode.deleteMany({ userId }),
       PasswordResetCode.deleteMany({ userId }),
     ]);
+
+    // ✅ optional improvement: delete avatar file on account deletion
+    // Only deletes if it was an uploaded key (not preset URL)
+    const key = user.profile_picture?.key || "";
+    if (key) await deleteUploadFileByKey(key);
 
     await user.deleteOne();
 

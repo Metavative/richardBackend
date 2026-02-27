@@ -33,17 +33,38 @@ router.get("/:id", asyncHandler(getPublicProfile));
 
 /**
  * PUT /api/users/edit
- * Auth required. Supports multipart form with optional profilePic.
+ * Auth required.
+ * Supports:
+ * - name
+ * - nickname
+ * - bio
+ * - username
+ * - profilePic (multipart image upload, optional)
  */
 router.put(
   "/edit",
   requireAuth,
+
+  // ✅ Handle multipart image upload safely
   (req, res, next) => {
     upload.single("profilePic")(req, res, (err) => {
-      if (err) return next(createError(400, err.message));
+      if (err) {
+        // Multer errors -> clean 400
+        return next(createError(400, err.message));
+      }
+
+      // Extra safety: ensure only image/*
+      if (req.file) {
+        const mt = String(req.file.mimetype || "").toLowerCase();
+        if (!mt.startsWith("image/")) {
+          return next(createError(400, "Only image files are allowed"));
+        }
+      }
+
       next();
     });
   },
+
   asyncHandler(editProfile)
 );
 
