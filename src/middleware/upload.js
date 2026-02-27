@@ -29,12 +29,39 @@ const storage = multer.diskStorage({
 });
 
 // ✅ Allow ALL image formats (png/jpg/jpeg/webp/heic/heif/gif/bmp/tiff/etc.)
+// ✅ Also tolerate Flutter/clients that send "application/octet-stream" for images
 function fileFilter(_req, file, cb) {
   const mimetype = String(file.mimetype || "").toLowerCase();
+  const original = String(file.originalname || "").toLowerCase();
+  const ext = safeExt(original);
 
   // Key rule: any image/*
   if (mimetype.startsWith("image/")) {
     return cb(null, true);
+  }
+
+  // Some clients (often Flutter) may send octet-stream.
+  // If the filename extension looks like an image, accept it.
+  if (mimetype === "application/octet-stream") {
+    const allowedExts = new Set([
+      ".jpg",
+      ".jpeg",
+      ".png",
+      ".webp",
+      ".gif",
+      ".bmp",
+      ".tif",
+      ".tiff",
+      ".heic",
+      ".heif",
+      ".avif",
+      ".ico",
+      ".svg",
+    ]);
+
+    if (ext && allowedExts.has(ext)) {
+      return cb(null, true);
+    }
   }
 
   return cb(new Error("Only image files are allowed"));
