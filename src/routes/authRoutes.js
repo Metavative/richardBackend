@@ -24,7 +24,7 @@ import {
 
 const router = Router();
 
-// ✅ helper: enable multipart for register (profile picture upload)
+// ✅ helper: enable multipart for register (custom avatar upload)
 function registerUpload(req, res, next) {
   upload.single("profilePic")(req, res, (err) => {
     if (err) return next(createError(400, err.message));
@@ -33,14 +33,18 @@ function registerUpload(req, res, next) {
 }
 
 // REGISTER
-// ✅ requires username + profile picture upload (multipart file "profilePic")
 router.post(
   "/register",
   authLimiter,
   registerUpload,
   [
     body("name").optional().trim(),
-    body("email").trim().isEmail().withMessage("Email format incorrect"),
+
+    body("email")
+      .trim()
+      .isEmail()
+      .withMessage("Email format incorrect"),
+
     body("password")
       .isLength({ min: 8 })
       .withMessage("Password must be at least 8 characters long")
@@ -58,26 +62,28 @@ router.post(
         "Username must be 3-20 chars and contain only letters, numbers, or underscore"
       ),
 
-    // ✅ NEW: require uploaded file
-    body().custom((_, { req }) => {
-      if (!req.file) {
-        throw new Error("Profile picture is required");
-      }
+    // ✅ Only validate preset pic fields when there is NO file upload
+    body("profilePicUrl")
+      .custom((value, { req }) => {
+        if (req.file) return true; // file upload used
+        if (value == null) return true; // may use profilePic instead
+        if (typeof value !== "string") throw new Error("profilePicUrl must be a string");
+        return true;
+      }),
 
-      // Multer filter already enforces image/*, but keep this for safety.
-      const mt = String(req.file.mimetype || "").toLowerCase();
-      if (!mt.startsWith("image/")) {
-        throw new Error("Only image files are allowed");
-      }
-
-      return true;
-    }),
+    body("profilePic")
+      .custom((value, { req }) => {
+        if (req.file) return true; // file upload used
+        if (value == null) return true; // may use profilePicUrl instead
+        if (typeof value !== "string") throw new Error("profilePic must be a string");
+        return true;
+      }),
   ],
   validateRequest,
   asyncHandler(register)
 );
 
-// LOGIN
+// ... rest unchanged
 router.post(
   "/login",
   authLimiter,
@@ -89,7 +95,6 @@ router.post(
   asyncHandler(login)
 );
 
-// VERIFY EMAIL OTP (expects { uid, code })
 router.post(
   "/verify-email",
   authLimiter,
@@ -101,7 +106,6 @@ router.post(
   asyncHandler(verifyEmail)
 );
 
-// RESEND VERIFICATION
 router.post(
   "/resend-verification",
   sensitiveLimiter,
@@ -110,7 +114,6 @@ router.post(
   asyncHandler(resendVerification)
 );
 
-// REFRESH
 router.post(
   "/refresh",
   sensitiveLimiter,
@@ -119,7 +122,6 @@ router.post(
   asyncHandler(refresh)
 );
 
-// LOGOUT
 router.post(
   "/logout",
   sensitiveLimiter,
@@ -128,7 +130,6 @@ router.post(
   asyncHandler(logout)
 );
 
-// FORGOT PASSWORD
 router.post(
   "/forgot-password",
   sensitiveLimiter,
@@ -137,7 +138,6 @@ router.post(
   asyncHandler(forgotPassword)
 );
 
-// RESET PASSWORD
 router.post(
   "/reset-password",
   sensitiveLimiter,
@@ -156,7 +156,6 @@ router.post(
   asyncHandler(resetPassword)
 );
 
-// SELECT ROLE
 router.post(
   "/select-role",
   authLimiter,
@@ -168,9 +167,7 @@ router.post(
   asyncHandler(selectRole)
 );
 
-// FETCH USERS
 router.get("/fetchUsers", asyncHandler(fetchUsers));
-
 router.delete("/delete-account", requireAuth, deleteAccount);
 
 export default router;
