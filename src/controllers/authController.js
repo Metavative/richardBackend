@@ -57,11 +57,26 @@ function pickRefreshToken(req) {
   return null;
 }
 
+function buildLoginPayload(user) {
+  const displayName =
+    (user.nickname && String(user.nickname).trim()) ||
+    (user.username && String(user.username).trim()) ||
+    (user.name && String(user.name).trim()) ||
+    "Player";
+
+  return {
+    id: user._id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    username: user.username,
+    nickname: user.nickname || "",
+    displayName,
+    profilePic: user.profile_picture?.url || null,
+  };
+}
+
 // ---------- REGISTER ----------
-// ✅ Requires: username + profile picture
-// ✅ Supports:
-// - Preset avatar: req.body.profilePicUrl / req.body.profilePic / req.body.profile_picture
-// - Custom upload: req.file (multer)
 export async function register(req, res, next) {
   try {
     assertValid(req);
@@ -70,7 +85,6 @@ export async function register(req, res, next) {
 
     const usernameRaw = req.body?.username;
 
-    // preset avatar (string key/url) can arrive in many forms
     const profilePicRaw =
       req.body?.profilePicUrl ||
       req.body?.profilePic ||
@@ -91,7 +105,6 @@ export async function register(req, res, next) {
       });
     }
 
-    // ✅ If file upload exists, prefer it
     let profilePicUrl = "";
     let profilePicKey = "";
 
@@ -100,7 +113,7 @@ export async function register(req, res, next) {
       profilePicUrl = `/uploads/${req.file.filename}`;
     } else {
       profilePicUrl = String(profilePicRaw || "").trim();
-      profilePicKey = ""; // preset has no uploaded key
+      profilePicKey = "";
     }
 
     if (!profilePicUrl) {
@@ -109,7 +122,6 @@ export async function register(req, res, next) {
       });
     }
 
-    // ✅ username uniqueness check
     const existingUsername = await User.findOne({ username: safeUsername })
       .select("_id emailVerified email")
       .lean();
@@ -130,11 +142,8 @@ export async function register(req, res, next) {
         return res.status(409).json({ message: "Email already in use" });
       }
 
-      // ✅ delete old uploaded avatar if user is re-registering unverified
-      // and they uploaded a new file this time
       const oldKey = user.profile_picture?.key || "";
 
-      // update existing unverified user
       user.name = safeName || user.name;
       user.email = safeEmail;
       user.password = password;
@@ -147,8 +156,6 @@ export async function register(req, res, next) {
 
       await user.save();
 
-      // ✅ If a new file upload happened, delete old file (if different)
-      // Only deletes uploads that were stored as local file keys.
       if (req.file && oldKey && oldKey !== profilePicKey) {
         await deleteUploadFileByKey(oldKey);
       }
@@ -244,6 +251,7 @@ export async function resendVerification(req, res, next) {
 }
 
 // ---------- VERIFY EMAIL ----------
+// ✅ UPDATED: after verifying code, return tokens + user payload
 export async function verifyEmail(req, res, next) {
   try {
     assertValid(req);
@@ -262,10 +270,39 @@ export async function verifyEmail(req, res, next) {
     const ok = await bcrypt.compare(String(code), row.codeHash);
     if (!ok) return res.status(400).json({ message: "Invalid code" });
 
+    // ✅ mark verified
     await User.findByIdAndUpdate(uid, { emailVerified: true });
     await VerificationCode.deleteMany({ userId: uid });
 
-    return res.json({ message: "Email verified" });
+    // ✅ load user and issue tokens immediately
+    const user = await User.findById(uid).select("+refreshToken");
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const accessToken = generateAccessToken({
+      sub: user._id.toString(),
+      email: user.email,
+    });
+
+    const refreshToken = generateRefreshToken({
+      sub: user._id.toString(),
+    });
+
+    user.refreshToken = refreshToken;
+    await user.save({ validateBeforeSave: false });
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? "strict" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return res.json({
+      message: "Email verified",
+      accessToken,
+      refreshToken,
+      user: buildLoginPayload(user),
+    });
   } catch (err) {
     next(err);
   }
@@ -314,25 +351,10 @@ export async function login(req, res, next) {
       maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    const displayName =
-      (user.nickname && String(user.nickname).trim()) ||
-      (user.username && String(user.username).trim()) ||
-      (user.name && String(user.name).trim()) ||
-      "Player";
-
     return res.json({
       accessToken,
       refreshToken,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        username: user.username,
-        nickname: user.nickname || "",
-        displayName,
-        profilePic: user.profile_picture?.url || null,
-      },
+      user: buildLoginPayload(user),
     });
   } catch (err) {
     next(err);
@@ -499,8 +521,6 @@ export async function deleteAccount(req, res, next) {
       PasswordResetCode.deleteMany({ userId }),
     ]);
 
-    // ✅ optional improvement: delete avatar file on account deletion
-    // Only deletes if it was an uploaded key (not preset URL)
     const key = user.profile_picture?.key || "";
     if (key) await deleteUploadFileByKey(key);
 
