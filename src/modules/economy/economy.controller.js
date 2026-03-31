@@ -14,6 +14,20 @@ import {
   capturePayPalOrder,
 } from "../../services/paypal.service.js";
 
+const PAYPAL_CURRENCY = String(process.env.PAYPAL_CURRENCY || "GBP")
+  .trim()
+  .toUpperCase();
+
+const PAYPAL_PACKS = Object.freeze({
+  pack_500: { coins: 500, price: 0.99 },
+  pack_1200: { coins: 1200, price: 1.99 },
+  pack_3000: { coins: 3000, price: 3.99 },
+});
+
+function getPack(packId) {
+  return PAYPAL_PACKS[String(packId || "").trim()] || null;
+}
+
 function getAuthedUserId(req) {
   return req?.userId || req?.user?.sub || req?.user?.userId || req?.user?.id || null;
 }
@@ -112,17 +126,24 @@ export async function buyCoins(req, res) {
     const userId = getAuthedUserId(req);
     if (!userId) return res.fail("UNAUTHORIZED", 401);
 
-    const { packId, coins, price } = req.body || {};
-    if (!packId || !coins || !price) {
-      return res.fail("packId, coins, price are required", 400);
+    const { packId } = req.body || {};
+    if (!packId) {
+      return res.fail("packId is required", 400);
     }
 
-    // ✅ In-app WebView redirect targets (WebView intercepts these)
+    const pack = getPack(packId);
+    if (!pack) {
+      return res.fail("Unknown packId", 400);
+    }
+
+    // In-app WebView redirect targets (WebView intercepts these)
     const returnUrl = "yourapp://paypal/success";
     const cancelUrl = "yourapp://paypal/cancel";
 
     const order = await createPayPalOrder({
-      price,
+      price: pack.price,
+      currencyCode: PAYPAL_CURRENCY,
+      customId: `${userId}:${packId}`,
       returnUrl,
       cancelUrl,
     });
@@ -133,6 +154,8 @@ export async function buyCoins(req, res) {
     return res.ok({
       orderId: order.id,
       approvalUrl,
+      packId,
+      coins: pack.coins,
     });
   } catch (error) {
     console.error("PAYPAL_CREATE_ERROR:", error?.response?.data || error);
@@ -148,27 +171,53 @@ export async function captureOrder(req, res) {
     const userId = getAuthedUserId(req);
     if (!userId) return res.fail("UNAUTHORIZED", 401);
 
-    const { orderId, packId, coins } = req.body || {};
-    if (!orderId || !packId || !coins) {
-      return res.fail("orderId, packId, coins are required", 400);
+    const { orderId, packId } = req.body || {};
+    if (!orderId || !packId) {
+      return res.fail("orderId, packId are required", 400);
+    }
+
+    const pack = getPack(packId);
+    if (!pack) {
+      return res.fail("Unknown packId", 400);
     }
 
     const capture = await capturePayPalOrder(orderId);
-
-    if (capture?.status === "COMPLETED") {
-      // ✅ credit coins (your existing dev method)
-      await buyCoinsDev(userId, { packId, coins });
-
-      const snap = await getEconomySnapshot(userId);
-
-      return res.ok({
-        success: true,
-        message: "Payment captured and coins added!",
-        economy: snap,
-      });
+    if (capture?.status !== "COMPLETED") {
+      return res.fail(`Payment status: ${capture?.status || "FAILED"}`, 400);
     }
 
-    return res.fail(`Payment status: ${capture?.status || "FAILED"}`, 400);
+    const purchaseUnit = capture?.purchase_units?.[0] || {};
+    const orderAmount = purchaseUnit?.amount || {};
+    const captures = purchaseUnit?.payments?.captures || [];
+    const captureAmount = captures[0]?.amount || orderAmount;
+
+    const paidCurrency = String(captureAmount?.currency_code || "").toUpperCase();
+    const paidValue = Number(captureAmount?.value);
+    const expectedValue = Number(pack.price);
+
+    if (
+      !Number.isFinite(paidValue) ||
+      paidCurrency !== PAYPAL_CURRENCY ||
+      paidValue.toFixed(2) !== expectedValue.toFixed(2)
+    ) {
+      return res.fail("Captured amount/currency mismatch", 400);
+    }
+
+    const expectedCustomId = `${userId}:${packId}`;
+    const customId = String(purchaseUnit?.custom_id || "").trim();
+    if (customId && customId !== expectedCustomId) {
+      return res.fail("Order does not belong to this user/pack", 400);
+    }
+
+    // Credit coins from trusted server-side pack config.
+    await buyCoinsDev(userId, { packId });
+
+    const snap = await getEconomySnapshot(userId);
+    return res.ok({
+      success: true,
+      message: "Payment captured and coins added!",
+      economy: snap,
+    });
   } catch (error) {
     console.error("PAYPAL_CAPTURE_ERROR:", error?.response?.data || error);
     return res.fail("Could not verify payment with PayPal", 500);

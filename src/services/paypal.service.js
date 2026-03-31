@@ -1,20 +1,29 @@
 // src/services/paypal.service.js
 import axios from "axios";
 
-const base =
-  process.env.PAYPAL_BASE_URL || "https://api-m.sandbox.paypal.com";
+const paypalEnv = (process.env.PAYPAL_ENV || "sandbox").toLowerCase();
+const defaultBaseUrl =
+  paypalEnv === "live"
+    ? "https://api-m.paypal.com"
+    : "https://api-m.sandbox.paypal.com";
+
+const base = process.env.PAYPAL_BASE_URL || defaultBaseUrl;
 
 const clientId = process.env.PAYPAL_CLIENT_ID;
 const clientSecret = process.env.PAYPAL_CLIENT_SECRET;
 
-if (!clientId || !clientSecret) {
-  console.error("❌ PAYPAL CLIENT ID / SECRET NOT SET");
+function assertPayPalConfig() {
+  if (!clientId || !clientSecret) {
+    throw new Error("PAYPAL_CLIENT_ID / PAYPAL_CLIENT_SECRET are not set");
+  }
 }
 
 // ---------------------------------------------------------------------------
 // OAuth2
 // ---------------------------------------------------------------------------
 async function generateAccessToken() {
+  assertPayPalConfig();
+
   const auth = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
 
   const response = await axios({
@@ -36,6 +45,8 @@ async function generateAccessToken() {
 // ---------------------------------------------------------------------------
 export async function createPayPalOrder({
   price,
+  currencyCode = "GBP",
+  customId = "",
   returnUrl,
   cancelUrl,
 }) {
@@ -43,6 +54,17 @@ export async function createPayPalOrder({
     throw new Error("Missing price / returnUrl / cancelUrl");
   }
 
+  const parsedPrice = Number(price);
+  if (!Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+    throw new Error("Invalid price");
+  }
+
+  const normalizedCurrency = String(currencyCode || "GBP").trim().toUpperCase();
+  if (!/^[A-Z]{3}$/.test(normalizedCurrency)) {
+    throw new Error("Invalid currency code");
+  }
+
+  const normalizedCustomId = String(customId || "").trim();
   const accessToken = await generateAccessToken();
 
   const response = await axios({
@@ -57,9 +79,10 @@ export async function createPayPalOrder({
       purchase_units: [
         {
           amount: {
-            currency_code: "GBP",
-            value: Number(price).toFixed(2),
+            currency_code: normalizedCurrency,
+            value: parsedPrice.toFixed(2),
           },
+          ...(normalizedCustomId ? { custom_id: normalizedCustomId } : {}),
         },
       ],
       application_context: {
