@@ -1,6 +1,6 @@
 // src/modules/stats/stats.service.js
 import Match from "../../models/Match.js";
-import User  from "../../models/User.js";
+import User from "../../models/User.js";
 
 function toId(v) {
   if (!v) return "";
@@ -96,7 +96,6 @@ function computeLongestWinStreak(matchesDesc, userId) {
   for (const m of matchesDesc) {
     const winnerId = extractWinnerId(m);
     const isWin = winnerId && winnerId === uid;
-    const isDraw = !winnerId;
 
     if (isWin) {
       current += 1;
@@ -105,7 +104,6 @@ function computeLongestWinStreak(matchesDesc, userId) {
     }
 
     current = 0;
-    if (!isDraw) current = 0;
   }
 
   return longest;
@@ -119,7 +117,6 @@ export async function getMyStats(userId) {
 
   const query = {
     $or: [
-      { players: uid },
       { "players.userId": uid },
       { "players.playerId": uid },
       { playerOneId: uid },
@@ -145,25 +142,38 @@ export async function getMyStats(userId) {
     return tb - ta;
   });
 
-  // ✅ Fallback: if no match history exists, use user.gamingStats
-  if (!matchesDesc.length) {
-    const gs = user?.gamingStats || {};
-    const wins = Number(gs.wins || 0);
-    const losses = Number(gs.losses || 0);
-    const draws = Number(gs.draws || 0);
-    const gamesPlayed = wins + losses + draws;
-    const winRate = gamesPlayed > 0 ? Math.round((wins / gamesPlayed) * 1000) / 10 : 0;
+  // Persisted user gaming stats are the source of truth for counters.
+  const gs = user?.gamingStats || {};
+  const gsWins = Number(gs.wins || 0);
+  const gsLosses = Number(gs.losses || 0);
+  const gsDraws = Number(gs.draws || 0);
+  const gsTotal = Number(gs.totalGames || 0);
+  const gsGamesPlayed = gsTotal > 0 ? gsTotal : gsWins + gsLosses + gsDraws;
+  const gsWinRateRaw = Number(gs.winRate);
+  const gsWinRate = Number.isFinite(gsWinRateRaw)
+    ? Math.round(gsWinRateRaw * 10) / 10
+    : (gsGamesPlayed > 0
+        ? Math.round((gsWins / gsGamesPlayed) * 1000) / 10
+        : 0);
+  const hasPersistedStats =
+    gsGamesPlayed > 0 ||
+    gsWins > 0 ||
+    gsLosses > 0 ||
+    gsDraws > 0 ||
+    Number(gs.maxStreak || 0) > 0;
 
+  // If no finished matches exist, return persisted stats directly.
+  if (!matchesDesc.length) {
     const mmrCandidate = user?.mmr ?? user?.gamingStats?.mmr ?? user?.stats?.mmr ?? null;
     const mmr = Number.isFinite(Number(mmrCandidate)) ? Number(mmrCandidate) : null;
 
     return {
       userId: uid,
-      gamesPlayed,
-      wins,
-      losses,
-      draws,
-      winRate,
+      gamesPlayed: gsGamesPlayed,
+      wins: gsWins,
+      losses: gsLosses,
+      draws: gsDraws,
+      winRate: gsWinRate,
       longestStreak: Number(gs.maxStreak || 0),
       avgScore: 0,
       rank: Number.isFinite(Number(user?.rank)) ? Number(user.rank) : null,
@@ -171,9 +181,9 @@ export async function getMyStats(userId) {
     };
   }
 
-  let wins = 0;
-  let losses = 0;
-  let draws = 0;
+  let matchWins = 0;
+  let matchLosses = 0;
+  let matchDraws = 0;
   let totalScore = 0;
   let scoreCount = 0;
 
@@ -184,11 +194,11 @@ export async function getMyStats(userId) {
     const winnerId = extractWinnerId(m);
 
     if (!winnerId) {
-      draws += 1;
+      matchDraws += 1;
     } else if (winnerId === uid) {
-      wins += 1;
+      matchWins += 1;
     } else {
-      losses += 1;
+      matchLosses += 1;
     }
 
     const myScore = extractScoreForUser(m, uid);
@@ -198,13 +208,20 @@ export async function getMyStats(userId) {
     }
   }
 
-  const gamesPlayed = wins + losses + draws;
-  const winRate = gamesPlayed > 0 ? Math.round((wins / gamesPlayed) * 1000) / 10 : 0;
+  const wins = hasPersistedStats ? gsWins : matchWins;
+  const losses = hasPersistedStats ? gsLosses : matchLosses;
+  const draws = hasPersistedStats ? gsDraws : matchDraws;
+  const gamesPlayed = hasPersistedStats ? gsGamesPlayed : wins + losses + draws;
+  const winRate = hasPersistedStats
+    ? gsWinRate
+    : (gamesPlayed > 0 ? Math.round((wins / gamesPlayed) * 1000) / 10 : 0);
   const avgScore = scoreCount > 0 ? Math.round((totalScore / scoreCount) * 10) / 10 : 0;
-  const longestStreak = computeLongestWinStreak(matchesDesc, uid);
+  const computedLongestStreak = computeLongestWinStreak(matchesDesc, uid);
+  const longestStreak = hasPersistedStats
+    ? Math.max(Number(gs.maxStreak || 0), computedLongestStreak)
+    : computedLongestStreak;
 
   const rank = Number.isFinite(Number(user?.rank)) ? Number(user.rank) : null;
-
   const mmrCandidate = user?.mmr ?? user?.gamingStats?.mmr ?? user?.stats?.mmr ?? null;
   const mmr = Number.isFinite(Number(mmrCandidate)) ? Number(mmrCandidate) : null;
 

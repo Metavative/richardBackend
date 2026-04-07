@@ -83,6 +83,7 @@ const userSchema = new mongoose.Schema(
     },
 
     cosmetics: {
+      ownedIds: { type: [String], default: [] },
       appliedBoardId: { type: String, default: "" },
       appliedPiecesId: { type: String, default: "" },
     },
@@ -138,6 +139,37 @@ const userSchema = new mongoose.Schema(
     currentMatchId: { type: String, default: null },
     lastMatchAt: { type: Date },
     socketId: { type: String, default: null },
+
+    notifications: {
+      pushEnabled: { type: Boolean, default: false },
+      deviceTokens: {
+        type: [
+          {
+            token: { type: String, trim: true, required: true },
+            platform: { type: String, trim: true, default: "unknown" },
+            appVersion: { type: String, trim: true, default: "" },
+            locale: { type: String, trim: true, default: "" },
+            timezone: { type: String, trim: true, default: "" },
+            lastSeenAt: { type: Date, default: Date.now },
+          },
+        ],
+        default: [],
+      },
+      lastActiveAt: { type: Date, default: Date.now },
+      lastFriendsOnlinePushAt: { type: Date },
+      lastInactivityReminderAt: { type: Date },
+    },
+
+    moderation: {
+      isBanned: { type: Boolean, default: false },
+      bannedAt: { type: Date, default: null },
+      bannedReason: { type: String, trim: true, default: "" },
+      bannedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+      suspendedUntil: { type: Date, default: null },
+      suspendedAt: { type: Date, default: null },
+      suspendedReason: { type: String, trim: true, default: "" },
+      suspendedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    },
   },
   { timestamps: true }
 );
@@ -146,6 +178,9 @@ userSchema.index({ name: 1 });
 userSchema.index({ nickname: 1 });
 userSchema.index({ username: 1 }, { unique: true });
 userSchema.index({ "gamingStats.mmr": -1 });
+userSchema.index({ "notifications.lastActiveAt": 1 });
+userSchema.index({ "moderation.isBanned": 1 });
+userSchema.index({ "moderation.suspendedUntil": 1 });
 
 userSchema.set("toJSON", {
   transform: function (_doc, ret) {

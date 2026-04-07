@@ -30,9 +30,22 @@ export function socketAuth() {
       let role = payload?.role || null;
       const email = payload?.email || null;
 
-      if (userId && !role) {
-        const u = await User.findById(userId).select("role email").lean();
-        role = u?.role || "unassigned";
+      if (userId) {
+        const u = await User.findById(userId)
+          .select("role email moderation.isBanned moderation.suspendedUntil")
+          .lean();
+        if (u?.moderation?.isBanned === true) {
+          socket.data.user = { userId: null, role: "guest", email: null };
+          return next();
+        }
+        const suspendedUntil = u?.moderation?.suspendedUntil
+          ? new Date(u.moderation.suspendedUntil)
+          : null;
+        if (suspendedUntil && suspendedUntil.getTime() > Date.now()) {
+          socket.data.user = { userId: null, role: "guest", email: null };
+          return next();
+        }
+        role = role || u?.role || "unassigned";
       }
 
       socket.data.user = {

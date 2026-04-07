@@ -13,9 +13,10 @@ import cosmeticsRoutes from "../modules/cosmetics/cosmetics.routes.js";
 import economyRoutes from "../modules/economy/economy.routes.js";
 import achievementsRoutes from "../modules/achievements/achievements.routes.js";
 import entitlementsRoutes from "../modules/entitlements/entitlements.routes.js";
-import adsRoutes from "../modules/ads/ads.routes.js";
 import statsRoutes from "../modules/stats/stats.routes.js";
 import historyRoutes from "../modules/history/history.routes.js";
+import adminRoutes from "../modules/admin/admin.routes.js";
+import notificationsRoutes from "../modules/notifications/notifications.routes.js";
 
 const router = express.Router();
 
@@ -41,7 +42,10 @@ router.use("/cosmetics", cosmeticsRoutes);
 router.use("/economy", economyRoutes);
 router.use("/achievements", achievementsRoutes);
 router.use("/entitlements", entitlementsRoutes);
-router.use("/ads", adsRoutes);
+// Ads routes are disabled for now.
+// To re-enable from UI later, restore adsRoutes import + mount.
 router.use("/stats", statsRoutes);
 router.use("/history", historyRoutes);
+router.use("/admin", adminRoutes);
+router.use("/notifications", notificationsRoutes);
 export default router;

@@ -1,6 +1,6 @@
 import express from "express";
 import { requireAuth } from "../../middleware/requireAuth.js";
-import { applyMyCosmetics, getMyCosmetics, listCosmetics } from "./cosmetics.service.js";
+import { applyMyCosmetics, buyCosmetic, getMyCosmetics, listCosmetics } from "./cosmetics.service.js";
 
 const router = express.Router();
 
@@ -24,10 +24,37 @@ router.get("/me", requireAuth, async (req, res, next) => {
   }
 });
 
+// POST /api/cosmetics/buy
+router.post("/buy", requireAuth, async (req, res, next) => {
+  try {
+    const data = await buyCosmetic(req.userId, {
+      cosmeticId: req.body?.cosmeticId,
+    });
+    return res.ok(data);
+  } catch (e) {
+    next(e);
+  }
+});
+
 // POST /api/cosmetics/me/apply
 router.post("/me/apply", requireAuth, async (req, res, next) => {
   try {
-    const { boardId = "", piecesId = "" } = req.body || {};
+    const body = req.body || {};
+    const boardId = body.boardId ?? body.appliedBoardId ?? "";
+    const piecesId = body.piecesId ?? body.appliedPiecesId ?? "";
+    const applied = await applyMyCosmetics(req.userId, { boardId, piecesId });
+    return res.ok({ applied });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Backward compatible alias
+router.post("/apply", requireAuth, async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const boardId = body.boardId ?? body.appliedBoardId ?? "";
+    const piecesId = body.piecesId ?? body.appliedPiecesId ?? "";
     const applied = await applyMyCosmetics(req.userId, { boardId, piecesId });
     return res.ok({ applied });
   } catch (e) {

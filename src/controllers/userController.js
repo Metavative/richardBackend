@@ -5,11 +5,41 @@ import User from "../models/User.js";
 import { deleteUploadFileByKey } from "../utils/deleteUploadFile.js";
 
 function normUsername(v) {
-  return String(v ?? "").trim().toLowerCase();
+  return String(v ?? "").trim();
 }
 function isValidUsername(username) {
   const u = normUsername(username);
-  return /^[a-z0-9_]{3,20}$/.test(u);
+  return /^[A-Za-z0-9_]{3,20}$/.test(u);
+}
+
+function escapeRegex(v) {
+  return String(v ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeBodyPicValue(v) {
+  if (v == null) return "";
+
+  if (typeof v === "string") {
+    const s = v.trim();
+    if (!s) return "";
+    if ((s.startsWith("{") || s.startsWith("[")) && s.length <= 2000) {
+      try {
+        const parsed = JSON.parse(s);
+        if (parsed && typeof parsed === "object" && typeof parsed.url === "string") {
+          return parsed.url.trim();
+        }
+      } catch (_) {}
+    }
+    return s;
+  }
+
+  if (typeof v === "object") {
+    if (typeof v.url === "string") return v.url.trim();
+    if (typeof v.path === "string") return v.path.trim();
+    return "";
+  }
+
+  return String(v).trim();
 }
 
 function safeUserOut(u, { includeEmail = false, includeRole = false } = {}) {
@@ -133,7 +163,7 @@ export async function editProfile(req, res) {
 
   // ✅ Load current user so we can delete old uploaded avatar if replaced
   const current = await User.findById(userId)
-    .select("_id profile_picture username")
+    .select("_id name nickname username email role profile_picture bio isOnline")
     .lean();
 
   if (!current) throw createError(404, "User not found");
@@ -142,9 +172,14 @@ export async function editProfile(req, res) {
 
   const updates = {};
 
-  if (req.body?.name) updates.name = String(req.body.name).trim();
-  if (req.body?.nickname) updates.nickname = String(req.body.nickname).trim();
-  if (req.body?.bio) updates.bio = String(req.body.bio).trim();
+  if (req.body?.name !== undefined) updates.name = String(req.body.name).trim();
+  if (req.body?.bio !== undefined) updates.bio = String(req.body.bio).trim();
+
+  const nicknameBody =
+    req.body?.nickname !== undefined ? req.body.nickname : req.body?.displayName;
+  if (nicknameBody !== undefined) {
+    updates.nickname = String(nicknameBody).trim();
+  }
 
   // ✅ allow username change
   if (req.body?.username != null) {
@@ -157,7 +192,7 @@ export async function editProfile(req, res) {
     }
 
     const exists = await User.findOne({
-      username: u,
+      username: { $regex: new RegExp(`^${escapeRegex(u)}$`, "i") },
       _id: { $ne: userId },
     })
       .select("_id")
@@ -169,15 +204,16 @@ export async function editProfile(req, res) {
   }
 
   // ✅ preset avatar url/key without upload (legacy)
-  const bodyPic =
+  const rawBodyPic =
     req.body?.profilePicUrl ||
     req.body?.profilePic ||
     req.body?.profile_picture?.url ||
     req.body?.profile_picture;
+  const bodyPic = normalizeBodyPicValue(rawBodyPic);
 
   let newKey = "";
 
-  if (!req.file && bodyPic != null) {
+  if (!req.file && bodyPic) {
     const url = String(bodyPic).trim();
     if (!url) throw createError(400, "Profile picture URL cannot be empty");
     updates.profile_picture = { key: "", url };
@@ -191,6 +227,26 @@ export async function editProfile(req, res) {
       key: newKey,
       url: `/uploads/${req.file.filename}`,
     };
+  }
+
+  // Keep legacy/old users updatable even if their old doc missed profile_picture.url.
+  if (!updates.profile_picture) {
+    const currentPic = String(current.profile_picture?.url || "").trim();
+    if (!currentPic) {
+      const seed = encodeURIComponent(
+        String(current.username || current._id?.toString() || "player")
+      );
+      updates.profile_picture = {
+        key: "",
+        url: `https://api.dicebear.com/9.x/bottts/png?seed=${seed}`,
+      };
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return res.status(200).json({
+      user: safeUserOut(current, { includeEmail: true, includeRole: true }),
+    });
   }
 
   const user = await User.findByIdAndUpdate(

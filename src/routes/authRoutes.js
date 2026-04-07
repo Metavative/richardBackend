@@ -13,6 +13,7 @@ import {
   verifyEmail,
   resendVerification,
   login,
+  googleLogin,
   refresh,
   logout,
   forgotPassword,
@@ -93,6 +94,14 @@ router.post(
   ],
   validateRequest,
   asyncHandler(login)
+);
+
+router.post(
+  "/google",
+  authLimiter,
+  [body("idToken").trim().notEmpty().withMessage("Google token required")],
+  validateRequest,
+  asyncHandler(googleLogin)
 );
 
 router.post(

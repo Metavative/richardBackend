@@ -1,5 +1,6 @@
 // src/sockets/presence.socket.js
 import { presenceStore } from "../stores/presence.store.js";
+import User from "../models/User.js";
 
 /**
  * Events:
@@ -18,6 +19,16 @@ export function bindPresenceSockets(io) {
     if (userId) {
       socket.join(`user:${userId}`);
       presenceStore.upsert(userId, socket.id);
+      User.updateOne(
+        { _id: userId },
+        {
+          $set: {
+            isOnline: true,
+            socketId: socket.id,
+            "notifications.lastActiveAt": new Date(),
+          },
+        }
+      ).catch(() => {});
 
       io.emit("presence:online", { userId });
     }
@@ -25,6 +36,10 @@ export function bindPresenceSockets(io) {
     socket.on("presence:ping", () => {
       if (!userId) return;
       presenceStore.upsert(userId, socket.id);
+      User.updateOne(
+        { _id: userId },
+        { $set: { "notifications.lastActiveAt": new Date() } }
+      ).catch(() => {});
     });
 
     socket.on("presence:list", (payload, ack) => {
@@ -39,6 +54,10 @@ export function bindPresenceSockets(io) {
       if (!userId) return;
       const { becameOffline } = presenceStore.removeSocket(userId, socket.id);
       if (becameOffline) {
+        User.updateOne(
+          { _id: userId },
+          { $set: { isOnline: false }, $unset: { socketId: 1 } }
+        ).catch(() => {});
         io.emit("presence:offline", { userId });
       }
     });

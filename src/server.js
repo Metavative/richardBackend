@@ -15,6 +15,7 @@ import routes from "./routes/index.js";
 import { initializeMatchmaking } from "./controllers/matchmakingController.js";
 import { initSockets } from "./sockets/index.js";
 import { setIO } from "./sockets/realtime.js"; // ✅ NEW
+import { startPushNotificationJobs } from "./services/push-notification.service.js";
 import { errorHandler, notFound } from "./middleware/error.middleware.js";
 import { requestIdMiddleware } from "./middleware/requestId.middleware.js";
 
@@ -126,6 +127,8 @@ initSockets(io, { matchmakingService });
 try {
   await connectDB();
   console.log("✅ MongoDB connected");
+  startPushNotificationJobs();
+  console.log("✅ Push notification jobs started");
 
   server.listen(env.PORT, () => {
     console.log(`🟢 Server running on port: ${env.PORT}`);

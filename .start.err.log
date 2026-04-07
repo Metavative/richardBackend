@@ -1,0 +1,459 @@
+(node:115592) [MONGOOSE] Warning: Duplicate schema index on {"username":1} found. This is often due to declaring an index using both "index: true" and "schema.index()". Please remove the duplicate index definition.
+(Use `node --trace-warnings ...` to show where the warning was created)
+[push] Firebase service account is not configured. Push notifications are disabled.
+❌ API Error {
+  requestId: '500be034-9c19-4710-9c4a-087e5b1b35f9',
+  method: 'POST',
+  path: '/api/notifications/heartbeat',
+  status: 401,
+  code: 'UNAUTHORIZED',
+  message: 'Authentication required'
+}
+❌ API Error {
+  requestId: '29c9cc83-135c-4f2d-b4cd-05411d8b3f09',
+  method: 'GET',
+  path: '/api/users/me',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '5075aa0b-1ce0-4b7c-9997-c22960c14a39',
+  method: 'GET',
+  path: '/api/users/me',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '46776fcc-63a6-40bd-a413-af5e2886e1a7',
+  method: 'PATCH',
+  path: '/api/admin/users/69d4e2215588e440956a243d',
+  status: 400,
+  code: 'BAD_REQUEST',
+  message: 'No valid fields provided'
+}
+❌ API Error {
+  requestId: '55b90e57-13d3-4d5a-a802-ad263a3259a3',
+  method: 'PATCH',
+  path: '/api/admin/users/69d4e2215588e440956a243d',
+  status: 400,
+  code: 'BAD_REQUEST',
+  message: 'No valid fields provided'
+}
+❌ API Error {
+  requestId: '4d8a0e54-1bd5-411d-a044-9bca6d07a2cb',
+  method: 'PATCH',
+  path: '/api/admin/users/69d4e2215588e440956a243d',
+  status: 400,
+  code: 'BAD_REQUEST',
+  message: 'No valid fields provided'
+}
+❌ API Error {
+  requestId: '2abe37d1-508b-4c7f-b42e-0b300e02c95b',
+  method: 'PATCH',
+  path: '/api/admin/users/69d4e2215588e440956a243d',
+  status: 400,
+  code: 'BAD_REQUEST',
+  message: 'No valid fields provided'
+}
+❌ API Error {
+  requestId: '5d3bb844-76cf-4849-8ec8-52b5e8f4e06a',
+  method: 'PATCH',
+  path: '/api/admin/users/69d4f1b45588e440956a24b0',
+  status: 400,
+  code: 'BAD_REQUEST',
+  message: 'No valid fields provided'
+}
+❌ API Error {
+  requestId: '3474798c-0ef8-4543-aafc-1565f1afcc1e',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '260e8f5a-3210-484c-8503-a430f2cc81c6',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'e6a4ecdf-cc69-49ee-b294-f16657b16073',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '84f36133-bbe6-4c92-9146-a1b3c967b943',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '00f28040-8328-4de2-b72a-ea61b8c9e604',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '791917a9-ff64-4c26-8052-18cc81e71221',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'e2fe2754-8f40-4b35-8a77-8da0254255d8',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '75b35dad-3c2f-449a-b15f-68b1255643a5',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'b0c6c7bd-ac25-4082-a7ce-bdf929bc43ed',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '3c379fc8-8760-43b5-ae3e-e12e3395b047',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '94946fb1-835c-4ae2-82cf-0c05dc135e38',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'a4a830e4-e87e-45f1-bd94-af6c9abb39a8',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'e8a07eb8-dc44-47ee-9167-afc3c58e1b42',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'c22a2a8d-c3d5-46d4-aa41-b161f3c35f63',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'c80d53c5-e9c6-4e92-9952-152a5a2af3ea',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '71ad3cf4-b4d9-45f5-93a7-89d33c6214b0',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '618180f5-820b-4f81-b1d7-fe955c04cec5',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '06068e5c-129f-4fd7-9d89-92fdf0ad2b6a',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '2bbab96d-8db4-4b85-827d-14eca4f549c1',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '078e7f05-3b86-4c6d-9a1b-df78e346c418',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '2871cdd2-40b4-4184-9423-40097877225b',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '030d37a3-277f-4303-aa03-7e5facb649ee',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '55f65f21-c19f-4fad-89f9-153e1b145f7a',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '3b6bbb53-9310-4c95-a8de-067158331dae',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '07bb8648-4688-47e3-8580-c9648689e21b',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'c64535cb-4937-4800-b1b4-e513a85e66b6',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '46083e29-d392-49a3-9f58-4619a02cf4ce',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '838641f8-50bd-4dec-86c4-73a616c4a2cc',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '7eef90a0-2cfd-46e7-a857-16e3f54bded3',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '3c3b2cc5-5944-461c-9a49-7a24ef8745e5',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '333fc522-21af-4e5f-a7f7-a7c87c8f55d1',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '3fdbc000-ade6-4c9a-b840-3a5277970f02',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '5df12c24-d01e-4e34-9e69-8dccd9067a7b',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '330ca53e-a01a-4178-a71a-669b677315b1',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '3de00531-03af-4e8a-bbf7-b624916c3bf2',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '4c34997c-c8b7-41bc-af1e-e67ad0e701c0',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '7e07adc7-efd2-4d6c-9b8a-a7ae855690af',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'a0f826eb-ef1c-40ef-811e-40943d4423c8',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'f0a933f7-1e9b-4253-93a0-215c14723c5b',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'f1396d7b-d67e-4ac6-8045-c7982129dcc5',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'e1f69bde-5e71-4fd8-8072-5fbb5466af1e',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '833a22f0-0596-4843-99ea-6e4a6ae677d2',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '27e78bbe-8e17-4cf4-b071-53327b13b8fc',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'e43f047a-1bce-4bba-868e-b2a7be611e42',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '2e776b39-e589-4b70-83f6-8aee84ef591b',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'c03dbe00-7cc2-4e59-8f66-2ea0fa03e13a',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '80f44a74-7fc7-4d05-b3c3-e692c2a017ea',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: 'efd672f4-ba28-4a94-a942-55eca96784b8',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}
+❌ API Error {
+  requestId: '99c4622e-fd14-47ed-9035-8aa4c92eed37',
+  method: 'GET',
+  path: '/api/admin/users',
+  status: 401,
+  code: 'INVALID_TOKEN',
+  message: 'Invalid or expired access token'
+}

@@ -7,6 +7,10 @@ function toId(v) {
   return v.toString();
 }
 
+function isObjectIdString(v) {
+  return /^[a-fA-F0-9]{24}$/.test(toId(v));
+}
+
 function isFinishedStatus(s) {
   const v = (s || "").toString().toLowerCase();
   return v === "finished" || v === "completed" || v === "done" || v === "ended";
@@ -91,6 +95,52 @@ function extractScorePair(match) {
   return [];
 }
 
+function extractOpponentNameFromMatch(match, myId) {
+  const uid = toId(myId);
+  const players = match?.players;
+  if (!Array.isArray(players) || !players.length) return null;
+
+  const opp = players.find((p) => {
+    const pid =
+      toId(p?.userId) ||
+      toId(p?.playerId) ||
+      toId(p?.uid) ||
+      toId(p?.id) ||
+      toId(p?._id);
+    return pid && pid !== uid;
+  });
+
+  if (!opp || typeof opp !== "object") return null;
+
+  const direct =
+    opp?.displayName ||
+    opp?.username ||
+    opp?.name ||
+    opp?.fullName ||
+    null;
+
+  if (direct != null) {
+    const s = String(direct).trim();
+    if (s) return s;
+  }
+
+  const nestedUser = opp?.user;
+  if (nestedUser && typeof nestedUser === "object") {
+    const n =
+      nestedUser.displayName ||
+      nestedUser.username ||
+      nestedUser.name ||
+      nestedUser.fullName ||
+      null;
+    if (n != null) {
+      const s = String(n).trim();
+      if (s) return s;
+    }
+  }
+
+  return null;
+}
+
 function guessOpponentId(match, myId) {
   const uid = toId(myId);
   // common patterns
@@ -123,7 +173,6 @@ export async function getMyHistory(userId, { limit = 25 } = {}) {
 
   const query = {
     $or: [
-      { players: uid },
       { "players.userId": uid },
       { "players.playerId": uid },
       { playerOneId: uid },
@@ -139,7 +188,12 @@ export async function getMyHistory(userId, { limit = 25 } = {}) {
   const finished = raw.filter((m) => {
     const s = m?.status;
     if (s === undefined || s === null || s === "") return true;
-    return isFinishedStatus(s);
+    if (isFinishedStatus(s)) return true;
+
+    // Safety fallback: treat as completed if backend already set end fields/winner.
+    if (extractWinnerId(m)) return true;
+    if (m?.endedAt || m?.finishedAt || m?.playedAt) return true;
+    return false;
   });
 
   // collect opponentIds and fetch names in one go
@@ -149,8 +203,10 @@ export async function getMyHistory(userId, { limit = 25 } = {}) {
     if (opp) opponentIds.add(opp);
   }
 
-  const users = opponentIds.size
-    ? await User.find({ _id: { $in: Array.from(opponentIds) } })
+  const validOpponentIds = Array.from(opponentIds).filter(isObjectIdString);
+
+  const users = validOpponentIds.length
+    ? await User.find({ _id: { $in: validOpponentIds } })
         .select("username name email phone")
         .lean()
     : [];
@@ -168,7 +224,7 @@ export async function getMyHistory(userId, { limit = 25 } = {}) {
   }
 
   const matches = finished.map((m) => {
-    const matchId = toId(m?._id || m?.id);
+    const matchId = toId(m?.matchId || m?._id || m?.id);
     const playedAt = pickPlayedAt(m);
 
     const winnerId = extractWinnerId(m);
@@ -176,7 +232,10 @@ export async function getMyHistory(userId, { limit = 25 } = {}) {
     const result = isDraw ? "draw" : winnerId === uid ? "won" : "lost";
 
     const oppId = guessOpponentId(m, uid);
-    const opponentName = oppId ? (nameById.get(oppId) || "Player") : "Player";
+    const embeddedOpponentName = extractOpponentNameFromMatch(m, uid);
+    const opponentName = oppId
+      ? (nameById.get(oppId) || embeddedOpponentName || "Player")
+      : (embeddedOpponentName || "Player");
 
     const scores = extractScorePair(m);
 

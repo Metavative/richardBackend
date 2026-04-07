@@ -16,6 +16,7 @@ import {
 } from "../utils/generateTokens.js";
 
 import { deleteUploadFileByKey } from "../utils/deleteUploadFile.js";
+import { getFirebaseAdminAuth } from "../services/fcm.service.js";
 
 // ---------- helpers ----------
 const make5DigitCode = () => String(crypto.randomInt(10000, 100000));
@@ -74,6 +75,86 @@ function buildLoginPayload(user) {
     displayName,
     profilePic: user.profile_picture?.url || null,
   };
+}
+
+function getActiveSuspendedUntil(user) {
+  const until = user?.moderation?.suspendedUntil
+    ? new Date(user.moderation.suspendedUntil)
+    : null;
+  if (!until) return null;
+  if (Number.isNaN(until.getTime())) return null;
+  return until.getTime() > Date.now() ? until : null;
+}
+
+function isBanned(user) {
+  return user?.moderation?.isBanned === true;
+}
+
+function bannedLoginResponse(res, user) {
+  if (!isBanned(user)) return false;
+  return res.status(403).json({
+    message: "Your account has been permanently banned. Contact support to appeal.",
+    code: "ACCOUNT_BANNED",
+  });
+}
+
+function suspensionLoginResponse(res, user) {
+  const until = getActiveSuspendedUntil(user);
+  if (!until) return false;
+
+  return res.status(403).json({
+    message: `Your account is suspended until ${until.toISOString()}`,
+    code: "ACCOUNT_SUSPENDED",
+    suspendedUntil: until.toISOString(),
+  });
+}
+
+function toSafeUsernameSeed(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+
+  if (!normalized) return "player";
+  if (/^[a-z0-9_]{3,20}$/.test(normalized)) return normalized;
+
+  const stripped = normalized.replace(/[^a-z0-9_]/g, "");
+  if (!stripped) return "player";
+  if (stripped.length >= 3) return stripped.slice(0, 20);
+
+  return `${stripped}${"player".slice(0, 3 - stripped.length)}`.slice(0, 20);
+}
+
+async function ensureUniqueUsername(seed) {
+  const base = toSafeUsernameSeed(seed).slice(0, 20);
+  let candidate = base.length >= 3 ? base : "player";
+
+  let taken = await User.findOne({ username: candidate }).select("_id").lean();
+  if (!taken) return candidate;
+
+  for (let i = 0; i < 15; i += 1) {
+    const suffix = String(crypto.randomInt(100, 9999));
+    const room = Math.max(3, 20 - suffix.length - 1);
+    candidate = `${base.slice(0, room)}_${suffix}`;
+    taken = await User.findOne({ username: candidate }).select("_id").lean();
+    if (!taken) return candidate;
+  }
+
+  return `player_${Date.now().toString().slice(-6)}`.slice(0, 20);
+}
+
+function fallbackNameFromEmail(email) {
+  const local = String(email || "").split("@")[0] || "player";
+  const cleaned = local.replace(/[^a-zA-Z0-9]+/g, " ").trim();
+  if (!cleaned) return "Player";
+  return cleaned.slice(0, 40);
+}
+
+function fallbackProfilePic(email) {
+  const seed = encodeURIComponent(String(email || "player"));
+  return `https://api.dicebear.com/9.x/identicon/png?seed=${seed}`;
 }
 
 // ---------- REGISTER ----------
@@ -275,8 +356,16 @@ export async function verifyEmail(req, res, next) {
     await VerificationCode.deleteMany({ userId: uid });
 
     // ✅ load user and issue tokens immediately
-    const user = await User.findById(uid).select("+refreshToken");
+    const user = await User.findById(uid).select(
+      "+refreshToken moderation.isBanned moderation.suspendedUntil"
+    );
     if (!user) return res.status(404).json({ message: "User not found" });
+
+    const banned = bannedLoginResponse(res, user);
+    if (banned) return banned;
+
+    const suspended = suspensionLoginResponse(res, user);
+    if (suspended) return suspended;
 
     const accessToken = generateAccessToken({
       sub: user._id.toString(),
@@ -317,7 +406,7 @@ export async function login(req, res, next) {
     const safeEmail = normEmail(email);
 
     const user = await User.findOne({ email: safeEmail }).select(
-      "+password +refreshToken"
+      "+password +refreshToken moderation.isBanned moderation.suspendedUntil"
     );
     if (!user) return res.status(401).json({ message: "Invalid credentials" });
 
@@ -331,6 +420,12 @@ export async function login(req, res, next) {
         email: user.email,
       });
     }
+
+    const banned = bannedLoginResponse(res, user);
+    if (banned) return banned;
+
+    const suspended = suspensionLoginResponse(res, user);
+    if (suspended) return suspended;
 
     const accessToken = generateAccessToken({
       sub: user._id.toString(),
@@ -361,6 +456,137 @@ export async function login(req, res, next) {
   }
 }
 
+// ---------- GOOGLE LOGIN ----------
+export async function googleLogin(req, res, next) {
+  try {
+    assertValid(req);
+
+    const firebaseAuth = getFirebaseAdminAuth();
+    if (!firebaseAuth) {
+      return res.status(503).json({
+        message:
+          "Google login is not available right now. Please try email login for now.",
+      });
+    }
+
+    const firebaseIdToken = String(req.body?.idToken || "").trim();
+    let decoded = null;
+    try {
+      decoded = await firebaseAuth.verifyIdToken(firebaseIdToken, true);
+    } catch {
+      return res.status(401).json({ message: "Google session is invalid or expired" });
+    }
+
+    const safeEmail = normEmail(decoded?.email);
+    if (!safeEmail) {
+      return res.status(400).json({
+        message: "Google account email is missing. Please use another account.",
+      });
+    }
+
+    if (decoded?.email_verified === false) {
+      return res.status(403).json({
+        message: "Please verify your Google account email and try again.",
+      });
+    }
+
+    const googleName = String(decoded?.name || "").trim();
+    const googlePicture = String(decoded?.picture || "").trim();
+
+    let user = await User.findOne({ email: safeEmail }).select(
+      "+refreshToken moderation.isBanned moderation.suspendedUntil"
+    );
+
+    if (!user) {
+      const usernameHint =
+        req.body?.username || googleName || safeEmail.split("@")[0] || "player";
+      const username = await ensureUniqueUsername(usernameHint);
+      const randomPassword = `${crypto.randomBytes(24).toString("hex")}Aa1`;
+
+      user = await User.create({
+        name: googleName || fallbackNameFromEmail(safeEmail),
+        email: safeEmail,
+        password: randomPassword,
+        username,
+        emailVerified: true,
+        profile_picture: {
+          key: "",
+          url: googlePicture || fallbackProfilePic(safeEmail),
+        },
+      });
+      user = await User.findById(user._id).select("+refreshToken");
+    } else {
+      let changed = false;
+
+      if (!user.emailVerified) {
+        user.emailVerified = true;
+        changed = true;
+      }
+
+      if (!String(user.name || "").trim() && googleName) {
+        user.name = googleName;
+        changed = true;
+      }
+
+      if (!String(user.profile_picture?.url || "").trim()) {
+        user.profile_picture = {
+          key: "",
+          url: googlePicture || fallbackProfilePic(safeEmail),
+        };
+        changed = true;
+      }
+
+      if (changed) {
+        await user.save({ validateBeforeSave: false });
+      }
+    }
+
+    if (!user) return res.status(500).json({ message: "Unable to complete Google login" });
+
+    const banned = bannedLoginResponse(res, user);
+    if (banned) return banned;
+
+    const suspended = suspensionLoginResponse(res, user);
+    if (suspended) return suspended;
+
+    const accessToken = generateAccessToken({
+      sub: user._id.toString(),
+      email: user.email,
+    });
+
+    const refreshToken = generateRefreshToken({
+      sub: user._id.toString(),
+    });
+
+    user.refreshToken = refreshToken;
+    await user.save({ validateBeforeSave: false });
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? "strict" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return res.json({
+      accessToken,
+      refreshToken,
+      user: buildLoginPayload(user),
+    });
+  } catch (err) {
+    if (err && err.code === 11000) {
+      const keys = Object.keys(err.keyPattern || {});
+      if (keys.includes("username")) {
+        return res.status(409).json({ message: "Username already in use" });
+      }
+      if (keys.includes("email")) {
+        return res.status(409).json({ message: "Email already in use" });
+      }
+    }
+    next(err);
+  }
+}
+
 // ---------- REFRESH ----------
 export async function refresh(req, res, next) {
   try {
@@ -369,11 +595,19 @@ export async function refresh(req, res, next) {
       return res.status(401).json({ message: "Missing refresh token" });
 
     const payload = verifyRefreshToken(token);
-    const user = await User.findById(payload.sub).select("+refreshToken");
+    const user = await User.findById(payload.sub).select(
+      "+refreshToken moderation.isBanned moderation.suspendedUntil"
+    );
 
     if (!user || user.refreshToken !== token) {
       return res.status(401).json({ message: "Invalid refresh token" });
     }
+
+    const banned = bannedLoginResponse(res, user);
+    if (banned) return banned;
+
+    const suspended = suspensionLoginResponse(res, user);
+    if (suspended) return suspended;
 
     const accessToken = generateAccessToken({
       sub: user._id.toString(),

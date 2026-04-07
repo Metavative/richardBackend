@@ -1,5 +1,12 @@
 import mongoose from "mongoose";
 
+function normalizeCosmeticType(v) {
+  const raw = String(v || "").trim().toLowerCase();
+  if (raw === "theme") return "board";
+  if (raw === "skin") return "pieces";
+  return raw;
+}
+
 const cosmeticSchema = new mongoose.Schema(
   {
     cosmeticId: { type: String, required: true, unique: true, index: true },
@@ -10,6 +17,8 @@ const cosmeticSchema = new mongoose.Schema(
 
     thumbnailUrl: { type: String, default: "" },
     previewUrl: { type: String, default: "" },
+    badge: { type: String, default: "" },
+    priceCoins: { type: Number, default: 0, min: 0 },
 
     // empty => unlocked by default
     unlockByAchievementId: { type: String, default: "" },
@@ -21,6 +30,17 @@ const cosmeticSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+cosmeticSchema.pre("validate", function (next) {
+  try {
+    if (this.isModified("type")) {
+      this.type = normalizeCosmeticType(this.type);
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
+});
 
 export const Cosmetic = mongoose.model("Cosmetic", cosmeticSchema);
 export default Cosmetic;

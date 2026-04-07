@@ -1,0 +1,115 @@
+
+> auth@1.0.0 start
+> node src/server.js
+
+✅ Friends sockets bound
+✅ Sockets initialized: presence + challenges + checkers + friends
+MongoDB connected
+✅ MongoDB connected
+✅ Push notification jobs started
+🟢 Server running on port: 4000
+[0mPOST /api/notifications/heartbeat [33m401[0m 14.635 ms - 1410[0m
+[0mGET /api/users/me [33m401[0m 51.098 ms - 1390[0m
+[0mGET /api/users/me [33m401[0m 2.585 ms - 1390[0m
+[0mPOST /api/auth/login [32m200[0m 2252.937 ms - 662[0m
+[0mGET /api/users/me [36m304[0m 1623.998 ms - -[0m
+[0mGET /api/users/me [36m304[0m 354.679 ms - -[0m
+[0mGET /api/users/me [36m304[0m 1539.787 ms - -[0m
+[0mGET /api/admin/users [32m200[0m 1525.887 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 379.661 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 388.879 ms - 4462[0m
+[0mGET /api/admin/cosmetics [32m200[0m 418.290 ms - 82[0m
+[0mGET /api/admin/users [32m200[0m 444.923 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 364.114 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 437.238 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 396.071 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 432.923 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 381.388 ms - 4462[0m
+[0mPATCH /api/admin/users/69d4e2215588e440956a243d [33m400[0m 499.889 ms - 400[0m
+[0mGET /api/admin/users [32m200[0m 361.007 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 451.709 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 368.811 ms - 4462[0m
+[0mPATCH /api/admin/users/69d4e2215588e440956a243d [33m400[0m 459.002 ms - 400[0m
+[0mGET /api/admin/users [0m-[0m - ms - -[0m
+[0mGET /api/users/me [36m304[0m 405.012 ms - -[0m
+[0mGET /api/users/me [36m304[0m 385.166 ms - -[0m
+[0mGET /api/admin/users [32m200[0m 1725.908 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 403.615 ms - 4462[0m
+[0mPATCH /api/admin/users/69d4e2215588e440956a243d [33m400[0m 411.723 ms - 400[0m
+[0mGET /api/admin/users [32m200[0m 481.583 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 368.415 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 453.796 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 361.659 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 365.317 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 418.885 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 528.008 ms - 4462[0m
+[0mGET /api/admin/users [32m200[0m 400.644 ms - 4462[0m
+[0mPATCH /api/admin/users/69d4e2215588e440956a243d [33m400[0m 367.370 ms - 400[0m
+[0mDELETE /api/admin/users/69d4e2215588e440956a243d [32m200[0m 402.832 ms - 122[0m
+[0mGET /api/admin/users [32m200[0m 564.293 ms - 4106[0m
+[0mGET /api/admin/users [32m200[0m 366.973 ms - 4106[0m
+[0mGET /api/admin/users [32m200[0m 473.929 ms - 4106[0m
+[0mGET /api/admin/users [32m200[0m 489.852 ms - 4106[0m
+[0mGET /api/admin/users [32m200[0m 418.864 ms - 4106[0m
+[0mPATCH /api/admin/users/69d4f1b45588e440956a24b0 [33m400[0m 415.275 ms - 400[0m
+[0mGET /api/admin/users [32m200[0m 472.447 ms - 4106[0m
+[0mGET /api/admin/users [32m200[0m 376.915 ms - 4106[0m
+[0mGET /api/admin/cosmetics [32m200[0m 444.697 ms - 82[0m
+[0mGET /api/admin/users [32m200[0m 364.590 ms - 4106[0m
+[0mGET /api/admin/users [32m200[0m 371.130 ms - 4106[0m
+[0mGET /api/admin/users [32m200[0m 372.302 ms - 4106[0m
+[0mGET /api/admin/users [32m200[0m 366.814 ms - 4106[0m
+[0mGET /api/admin/users [32m200[0m 372.933 ms - 4106[0m
+[0mGET /api/admin/users [32m200[0m 373.884 ms - 4106[0m
+[0mGET /api/admin/users [32m200[0m 361.918 ms - 4106[0m
+[0mGET /api/admin/users [32m200[0m 365.957 ms - 4106[0m
+[0mGET /api/admin/users [32m200[0m 358.942 ms - 4106[0m
+[0mGET /api/admin/users [33m401[0m 2.627 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 5.018 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.300 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 6.396 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 1.907 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 6.077 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 2.530 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 1.742 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 2.175 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 1.312 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.836 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 4.920 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 4.127 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.564 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 4.078 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 2.443 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 2.282 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 2.869 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.129 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.115 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.931 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 2.631 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 4.155 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 2.990 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 4.032 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.221 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 2.885 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 4.372 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.512 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.946 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.308 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 2.452 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 4.496 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.427 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 5.506 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 2.430 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 5.300 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.311 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 5.855 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 5.898 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 2.968 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 2.738 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.118 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 5.881 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.837 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.988 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 3.741 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 2.912 ms - 1373[0m
+[0mGET /api/admin/users [33m401[0m 4.816 ms - 1373[0m

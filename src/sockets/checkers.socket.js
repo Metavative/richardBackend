@@ -19,7 +19,7 @@ import { awardMatchResult } from "../services/economy.service.js";
  *  - checkers:match_finished  { matchId, winner, reason }
  */
 
-const GRACE_MS = 60_000;
+const GRACE_MS = 30_000;
 
 // socket.id -> { matchId, userId }
 const socketSession = new Map();
@@ -218,6 +218,69 @@ async function awardIfPossible({ matchId, winnerId, reason, st }) {
   }
 }
 
+async function resolveOpponentId({ matchId, userId, st }) {
+  const uid = safeStr(userId);
+  if (!uid) return null;
+
+  const inMemoryOpp = checkersStore.getOpponentId(matchId, uid);
+  if (inMemoryOpp) return inMemoryOpp;
+
+  const p1 = safeStr(st?.playerOneId);
+  const p2 = safeStr(st?.playerTwoId);
+  if (p1 && p2) {
+    if (uid === p1) return p2;
+    if (uid === p2) return p1;
+  }
+
+  const fromDb = await resolvePlayersFromDb(matchId);
+  const dbP1 = safeStr(fromDb.p1);
+  const dbP2 = safeStr(fromDb.p2);
+
+  if (uid === dbP1) return dbP2 || null;
+  if (uid === dbP2) return dbP1 || null;
+  return null;
+}
+
+async function finalizeForfeit({
+  io,
+  matchId,
+  disconnectedUserId,
+  reason,
+  st,
+}) {
+  const quitterId = safeStr(disconnectedUserId);
+  if (!quitterId) return;
+
+  const winnerId = await resolveOpponentId({
+    matchId,
+    userId: quitterId,
+    st,
+  });
+  if (!winnerId) return;
+
+  const finalSt = checkersStore.forfeit(matchId, winnerId);
+  if (!finalSt) return;
+
+  io.to(room(matchId)).emit("checkers:match_finished", {
+    matchId,
+    winner: winnerId,
+    reason,
+  });
+
+  emitStateToRoom(io, matchId, finalSt);
+
+  await ensureMatchDocExists({ matchId, p1: winnerId, p2: quitterId });
+  await markMatchCompleted({ matchId, winnerId });
+
+  // Explicit loser id guarantees leave/disconnect updates win/loss correctly.
+  await awardMatchResult({
+    matchId,
+    winnerId,
+    loserId: quitterId,
+    reason,
+  });
+}
+
 export function bindCheckersSockets(io) {
   // cleanup old in-memory states every 5 minutes
   setInterval(() => {
@@ -314,26 +377,12 @@ export function bindCheckersSockets(io) {
             authedUserId,
             GRACE_MS,
             async ({ matchId: mid, userId }) => {
-              const opp = checkersStore.getOpponentId(mid, userId);
-              if (!opp) return;
-
-              const finalSt = checkersStore.forfeit(mid, opp);
-              if (!finalSt) return;
-
-              io.to(room(mid)).emit("checkers:match_finished", {
+              await finalizeForfeit({
+                io,
                 matchId: mid,
-                winner: opp,
+                disconnectedUserId: userId,
                 reason: "left_match",
-              });
-
-              emitStateToRoom(io, mid, finalSt);
-
-              await markMatchCompleted({ matchId: mid, winnerId: opp });
-              await awardIfPossible({
-                matchId: mid,
-                winnerId: opp,
-                reason: "left_match",
-                st: finalSt,
+                st,
               });
             }
           );
@@ -487,30 +536,12 @@ export function bindCheckersSockets(io) {
           userId,
           GRACE_MS,
           async ({ matchId: mid, userId: uid }) => {
-            const opp = checkersStore.getOpponentOpponentId
-              ? checkersStore.getOpponentOpponentId(mid, uid)
-              : checkersStore.getOpponentId(mid, uid);
-
-            const oppId = opp;
-            if (!oppId) return;
-
-            const finalSt = checkersStore.forfeit(mid, oppId);
-            if (!finalSt) return;
-
-            io.to(room(mid)).emit("checkers:match_finished", {
+            await finalizeForfeit({
+              io,
               matchId: mid,
-              winner: oppId,
+              disconnectedUserId: uid,
               reason: "opponent_disconnected",
-            });
-
-            emitStateToRoom(io, mid, finalSt);
-
-            await markMatchCompleted({ matchId: mid, winnerId: oppId });
-            await awardIfPossible({
-              matchId: mid,
-              winnerId: oppId,
-              reason: "opponent_disconnected",
-              st: finalSt,
+              st,
             });
           }
         );

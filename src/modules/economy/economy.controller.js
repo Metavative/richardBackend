@@ -6,10 +6,6 @@ import {
   buyCoinsDev,
 } from "../../services/economy.service.js";
 import {
-  getAdsConfigForUser,
-  getInterstitialEligibility,
-} from "../../services/ads.service.js";
-import {
   createPayPalOrder,
   capturePayPalOrder,
 } from "../../services/paypal.service.js";
@@ -47,12 +43,6 @@ export async function getMyEconomy(req, res) {
 
   const snap = await getEconomySnapshot(user._id);
 
-  const adsConfig = await getAdsConfigForUser(user._id);
-  const adsEligibility = await getInterstitialEligibility({
-    userId: user._id,
-    placement: "between_matches",
-  });
-
   return res.ok({
     userId: user._id.toString(),
 
@@ -71,8 +61,21 @@ export async function getMyEconomy(req, res) {
     },
 
     ads: {
-      config: adsConfig,
-      eligibility: adsEligibility,
+      // Ads are disabled for now.
+      // To re-enable from UI later, restore ads.service integration here.
+      config: {
+        enabled: false,
+        cooldownSeconds: 0,
+        maxPerDay: 0,
+        placements: {},
+      },
+      eligibility: {
+        allowed: false,
+        reason: "ads_disabled",
+        cooldownRemainingSeconds: 0,
+        remainingToday: 0,
+        maxPerDay: 0,
+      },
     },
 
     economy: {

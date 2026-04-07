@@ -33,15 +33,29 @@ export async function requireAuth(req, _res, next) {
     const payload = verifyAccessToken(token);
 
     const user = await User.findById(payload.userId).select(
-      "_id role status emailVerified"
+      "_id role status emailVerified moderation.isBanned moderation.suspendedUntil"
     );
 
     if (!user) {
       throw createError(401, "User not found");
     }
 
-    if (user.status === "blocked") {
-      throw createError(403, "Account is blocked");
+    if (user.status === "blocked" || user?.moderation?.isBanned === true) {
+      const err = createError(403, "Account is banned");
+      err.code = "ACCOUNT_BANNED";
+      throw err;
+    }
+
+    const suspendedUntil = user?.moderation?.suspendedUntil
+      ? new Date(user.moderation.suspendedUntil)
+      : null;
+    if (suspendedUntil && suspendedUntil.getTime() > Date.now()) {
+      const err = createError(
+        403,
+        `Account is suspended until ${suspendedUntil.toISOString()}`
+      );
+      err.code = "ACCOUNT_SUSPENDED";
+      throw err;
     }
 
     req.userId = user._id.toString();
@@ -50,6 +64,11 @@ export async function requireAuth(req, _res, next) {
       role: user.role,
       emailVerified: user.emailVerified,
     };
+
+    User.updateOne(
+      { _id: req.userId },
+      { $set: { "notifications.lastActiveAt": new Date() } }
+    ).catch(() => {});
 
     next();
   } catch (err) {
