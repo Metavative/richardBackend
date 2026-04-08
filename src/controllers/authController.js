@@ -230,6 +230,7 @@ export async function register(req, res, next) {
       user.password = password;
 
       user.username = safeUsername;
+      user.emailVerified = true;
       user.profile_picture = {
         key: profilePicKey || user.profile_picture?.key || "",
         url: profilePicUrl,
@@ -246,31 +247,49 @@ export async function register(req, res, next) {
         email: safeEmail,
         password,
         username: safeUsername,
+        emailVerified: true,
         profile_picture: { key: profilePicKey, url: profilePicUrl },
       });
     }
 
     await VerificationCode.deleteMany({ userId: user._id });
+    user = await User.findById(user._id).select(
+      "+refreshToken moderation.isBanned moderation.suspendedUntil"
+    );
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-    const raw = make5DigitCode();
-    const codeHash = await hashToken(raw);
+    const banned = bannedLoginResponse(res, user);
+    if (banned) return banned;
 
-    await VerificationCode.create({
-      userId: user._id,
-      codeHash,
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+    const suspended = suspensionLoginResponse(res, user);
+    if (suspended) return suspended;
+
+    const accessToken = generateAccessToken({
+      sub: user._id.toString(),
+      email: user.email,
     });
 
-    await sendEmail({
-      to: user.email,
-      subject: "Verify your email",
-      html: `<p>Your verification code is <b>${raw}</b></p>`,
+    const refreshToken = generateRefreshToken({
+      sub: user._id.toString(),
+    });
+
+    user.refreshToken = refreshToken;
+    await user.save({ validateBeforeSave: false });
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? "strict" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
     return res.status(201).json({
-      message: "Verification code sent",
+      message: "Registered successfully",
       uid: user._id,
       email: user.email,
+      accessToken,
+      refreshToken,
+      user: buildLoginPayload(user),
     });
   } catch (err) {
     if (err && err.code === 11000) {
@@ -413,14 +432,6 @@ export async function login(req, res, next) {
     const ok = await user.comparePassword(password);
     if (!ok) return res.status(401).json({ message: "Invalid credentials" });
 
-    if (!user.emailVerified) {
-      return res.status(403).json({
-        message: "Please verify your email before logging in",
-        uid: user._id,
-        email: user.email,
-      });
-    }
-
     const banned = bannedLoginResponse(res, user);
     if (banned) return banned;
 
@@ -481,12 +492,6 @@ export async function googleLogin(req, res, next) {
     if (!safeEmail) {
       return res.status(400).json({
         message: "Google account email is missing. Please use another account.",
-      });
-    }
-
-    if (decoded?.email_verified === false) {
-      return res.status(403).json({
-        message: "Please verify your Google account email and try again.",
       });
     }
 
