@@ -26,7 +26,7 @@ function createInitialBoard({ blockersEnabled = false } = {}) {
   ];
 }
 
-// lowercase => player one, uppercase => player two
+// Uppercase pieces belong to player one; lowercase pieces belong to player two.
 function countSides(pieces) {
   let p1 = 0;
   let p2 = 0;
@@ -39,8 +39,8 @@ function countSides(pieces) {
 
       // only letters count as pieces
       const ch = v[0];
-      if (ch >= "a" && ch <= "z") p1++;
-      else if (ch >= "A" && ch <= "Z") p2++;
+      if (ch >= "A" && ch <= "Z") p1++;
+      else if (ch >= "a" && ch <= "z") p2++;
     }
   }
 
@@ -66,6 +66,8 @@ class CheckersStore {
     if (existing) {
       if (!existing.playerOneId && playerOneId) existing.playerOneId = playerOneId;
       if (!existing.playerTwoId && playerTwoId) existing.playerTwoId = playerTwoId;
+      if (!Array.isArray(existing.playerOneCaptured)) existing.playerOneCaptured = [];
+      if (!Array.isArray(existing.playerTwoCaptured)) existing.playerTwoCaptured = [];
       return existing;
     }
 
@@ -74,6 +76,8 @@ class CheckersStore {
       playerOneId: playerOneId || null,
       playerTwoId: playerTwoId || null,
       pieces: createInitialBoard({ blockersEnabled }),
+      playerOneCaptured: [],
+      playerTwoCaptured: [],
       isPlayerOneTurn: true,
       gameEnded: false,
       winner: null,
@@ -194,17 +198,25 @@ class CheckersStore {
       const piece = st.pieces?.[fr]?.[fc] ?? null;
       if (piece == null) return { state: st, error: "No piece at from" };
 
-      st.pieces[fr][fc] = null;
-      st.pieces[tr][tc] = piece;
-
       const captured = Array.isArray(movePayload.captured) ? movePayload.captured : [];
+      const moverIsP1 = piece === piece.toUpperCase();
+
+      // Remove captured squares first. This preserves corner-capture landings.
       for (const p of captured) {
         const rr = p?.row;
         const cc = p?.col;
-        if (typeof rr === "number" && typeof cc === "number") {
-          st.pieces[rr][cc] = null;
+        if (typeof rr !== "number" || typeof cc !== "number") continue;
+
+        const removed = st.pieces?.[rr]?.[cc] ?? null;
+        if (removed != null) {
+          if (moverIsP1) st.playerOneCaptured.push(removed);
+          else st.playerTwoCaptured.push(removed);
         }
+        st.pieces[rr][cc] = null;
       }
+
+      st.pieces[fr][fc] = null;
+      st.pieces[tr][tc] = piece;
     }
 
     // Turn
