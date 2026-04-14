@@ -350,6 +350,7 @@ export function bindCheckersSockets(io) {
           status: "connected",
         });
 
+        emitStateToRoom(io, matchId, st);
         emitStateToSocket(socket, matchId, st);
       } catch (err) {
         socket.emit("checkers:error", {
@@ -398,6 +399,10 @@ export function bindCheckersSockets(io) {
             status: "disconnected",
             expiresAt: info?.expiresAt,
           });
+
+          if (updated) {
+            emitStateToRoom(io, matchId, updated);
+          }
         }
       } catch (err) {
         socket.emit("checkers:error", {
@@ -562,6 +567,10 @@ export function bindCheckersSockets(io) {
           status: "disconnected",
           expiresAt: info?.expiresAt,
         });
+
+        if (updated) {
+          emitStateToRoom(io, matchId, updated);
+        }
       } catch (_) {
         // ignore
       }
