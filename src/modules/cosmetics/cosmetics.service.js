@@ -62,6 +62,38 @@ export async function getMyCosmetics(userId) {
   const ownedIds = Array.from(new Set([...purchased, ...unlockedByAchievement, ...freeIds]));
   const ownedSet = new Set(ownedIds);
 
+  const appliedIds = [applied.boardId, applied.piecesId].filter(Boolean);
+  let appliedCosmetics = { board: null, pieces: null };
+  if (appliedIds.length > 0) {
+    const docs = await Cosmetic.find({
+      cosmeticId: { $in: appliedIds },
+    })
+      .select("cosmeticId type name thumbnailUrl previewUrl style active")
+      .lean();
+
+    const byId = new Map(docs.map((d) => [String(d.cosmeticId), d]));
+    const b = applied.boardId ? byId.get(applied.boardId) : null;
+    const p = applied.piecesId ? byId.get(applied.piecesId) : null;
+
+    const out = (d) =>
+      d
+        ? {
+            id: d.cosmeticId,
+            type: storeType(d.type),
+            name: d.name || "",
+            thumbnailUrl: d.thumbnailUrl || "",
+            previewUrl: d.previewUrl || "",
+            style: d.style || {},
+            active: d.active !== false,
+          }
+        : null;
+
+    appliedCosmetics = {
+      board: out(b),
+      pieces: out(p),
+    };
+  }
+
   return {
     ownedIds,
     unlockedIds: ownedIds, // backward compatibility for older clients
@@ -69,6 +101,7 @@ export async function getMyCosmetics(userId) {
       boardId: ownedSet.has(applied.boardId) ? applied.boardId : "",
       piecesId: ownedSet.has(applied.piecesId) ? applied.piecesId : "",
     },
+    appliedCosmetics,
   };
 }
 

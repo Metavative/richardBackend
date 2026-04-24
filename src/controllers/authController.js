@@ -39,6 +39,43 @@ function normEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
+async function verifyFirebaseIdTokenViaRest(idToken) {
+  const apiKey = String(env.FIREBASE_WEB_API_KEY || "").trim();
+  if (!apiKey) return null;
+
+  try {
+    const resp = await fetch(
+      `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ idToken }),
+      }
+    );
+
+    if (!resp.ok) return null;
+
+    const payload = await resp.json();
+    const users = Array.isArray(payload?.users) ? payload.users : [];
+    const u = users[0];
+    if (!u) return null;
+
+    return {
+      uid: String(u.localId || "").trim(),
+      email: String(u.email || "").trim(),
+      email_verified:
+        u.emailVerified === true || String(u.emailVerified || "").toLowerCase() === "true",
+      name: String(u.displayName || "").trim(),
+      picture: String(u.photoUrl || "").trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function normUsername(username) {
   return String(username || "").trim().toLowerCase();
 }
@@ -473,18 +510,28 @@ export async function googleLogin(req, res, next) {
     assertValid(req);
 
     const firebaseAuth = getFirebaseAdminAuth();
-    if (!firebaseAuth) {
-      return res.status(503).json({
-        message:
-          "Google login is not available right now. Please try email login for now.",
-      });
-    }
-
     const firebaseIdToken = String(req.body?.idToken || "").trim();
     let decoded = null;
-    try {
-      decoded = await firebaseAuth.verifyIdToken(firebaseIdToken, true);
-    } catch {
+
+    if (firebaseAuth) {
+      try {
+        decoded = await firebaseAuth.verifyIdToken(firebaseIdToken, true);
+      } catch {
+        // Fallback path: verify via Firebase Identity Toolkit when Admin SDK
+        // credentials are not fully configured on this environment.
+        decoded = await verifyFirebaseIdTokenViaRest(firebaseIdToken);
+      }
+    } else {
+      decoded = await verifyFirebaseIdTokenViaRest(firebaseIdToken);
+      if (!decoded) {
+        return res.status(503).json({
+          message:
+            "Google login is not available right now. Please configure Firebase Admin or FIREBASE_WEB_API_KEY.",
+        });
+      }
+    }
+
+    if (!decoded) {
       return res.status(401).json({ message: "Google session is invalid or expired" });
     }
 

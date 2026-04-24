@@ -145,12 +145,21 @@ function fileNameStem(fileName) {
   return asString(base).replace(/[_-]+/g, " ");
 }
 
-function absoluteUploadUrl(req, fileName) {
-  const protoHeader = asString(req.headers?.["x-forwarded-proto"]);
-  const protocol = protoHeader || req.protocol || "https";
-  const host = asString(req.get?.("host"));
-  if (!host) return `/uploads/${fileName}`;
-  return `${protocol}://${host}/uploads/${fileName}`;
+function normalizeCosmeticMediaUrl(v) {
+  const s = asString(v);
+  if (!s) return "";
+
+  try {
+    const u = new URL(s);
+    if (u.pathname && u.pathname.startsWith("/uploads/")) {
+      return u.pathname;
+    }
+    return s;
+  } catch (_) {
+    if (s.startsWith("/uploads/")) return s;
+    if (s.startsWith("uploads/")) return `/${s}`;
+    return s;
+  }
 }
 
 async function safeDeleteUploadedFile(fileName) {
@@ -411,8 +420,8 @@ export async function createCosmeticAdmin(req, res) {
   const type = normalizeCosmeticType(req.body?.type);
   const name = asString(req.body?.name);
   const description = asString(req.body?.description);
-  const thumbnailUrl = asString(req.body?.thumbnailUrl);
-  const previewUrl = asString(req.body?.previewUrl);
+  const thumbnailUrl = normalizeCosmeticMediaUrl(req.body?.thumbnailUrl);
+  const previewUrl = normalizeCosmeticMediaUrl(req.body?.previewUrl);
   const badge = asString(req.body?.badge);
   const priceCoins = asOptionalNumber(req.body?.priceCoins) ?? 0;
   const unlockByAchievementId = asString(req.body?.unlockByAchievementId);
@@ -458,28 +467,47 @@ export async function createCosmeticAdmin(req, res) {
 }
 
 export async function uploadBoardImageAndCreateAdmin(req, res) {
+  return uploadCosmeticImageAndCreateAdmin(req, res, {
+    type: "board",
+    defaultName: "Board Theme",
+  });
+}
+
+export async function uploadPiecesImageAndCreateAdmin(req, res) {
+  return uploadCosmeticImageAndCreateAdmin(req, res, {
+    type: "pieces",
+    defaultName: "Piece Skin",
+  });
+}
+
+async function uploadCosmeticImageAndCreateAdmin(req, res, { type, defaultName }) {
   const file = req.file;
   if (!file) throw createError(400, "image file is required");
 
-  const uploadUrl = absoluteUploadUrl(req, file.filename);
-  const name = asString(req.body?.name) || fileNameStem(file.originalname) || "Board Theme";
+  const normalizedType = normalizeCosmeticType(type);
+  if (!COSMETIC_TYPES.has(normalizedType)) {
+    throw createError(400, "type must be board or pieces");
+  }
+
+  const uploadPath = `/uploads/${file.filename}`;
+  const name = asString(req.body?.name) || fileNameStem(file.originalname) || defaultName;
   const priceCoins = asOptionalNumber(req.body?.priceCoins) ?? 0;
   const sortFromBody = asOptionalNumber(req.body?.sort);
   const active = asOptionalBool(req.body?.active);
 
   try {
-    const maxBoard = await Cosmetic.findOne({ type: "board" })
+    const maxForType = await Cosmetic.findOne({ type: normalizedType })
       .sort({ sort: -1 })
       .select("sort")
       .lean();
     const resolvedSort =
-      sortFromBody !== undefined ? sortFromBody : Number(maxBoard?.sort || 0) + 10;
+      sortFromBody !== undefined ? sortFromBody : Number(maxForType?.sort || 0) + 10;
 
     req.body = {
-      type: "board",
+      type: normalizedType,
       name,
-      thumbnailUrl: uploadUrl,
-      previewUrl: uploadUrl,
+      thumbnailUrl: uploadPath,
+      previewUrl: uploadPath,
       priceCoins: Math.max(0, priceCoins),
       sort: resolvedSort,
       active: active === undefined ? true : active,
@@ -529,8 +557,12 @@ export async function updateCosmeticAdmin(req, res) {
     updates.name = n;
   }
   if (req.body?.description !== undefined) updates.description = asString(req.body.description);
-  if (req.body?.thumbnailUrl !== undefined) updates.thumbnailUrl = asString(req.body.thumbnailUrl);
-  if (req.body?.previewUrl !== undefined) updates.previewUrl = asString(req.body.previewUrl);
+  if (req.body?.thumbnailUrl !== undefined) {
+    updates.thumbnailUrl = normalizeCosmeticMediaUrl(req.body.thumbnailUrl);
+  }
+  if (req.body?.previewUrl !== undefined) {
+    updates.previewUrl = normalizeCosmeticMediaUrl(req.body.previewUrl);
+  }
   if (req.body?.badge !== undefined) updates.badge = asString(req.body.badge);
   if (req.body?.priceCoins !== undefined) {
     const n = asOptionalNumber(req.body.priceCoins);

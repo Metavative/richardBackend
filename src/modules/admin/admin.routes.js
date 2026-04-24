@@ -10,6 +10,7 @@ import {
   listCosmeticsAdmin,
   listUsersAdmin,
   uploadBoardImageAndCreateAdmin,
+  uploadPiecesImageAndCreateAdmin,
   updateCosmeticAdmin,
   updateUserAdmin,
 } from "./admin.controller.js";
@@ -34,6 +35,11 @@ router.post(
   "/cosmetics/upload-board",
   boardUploadMiddleware,
   asyncHandler(uploadBoardImageAndCreateAdmin)
+);
+router.post(
+  "/cosmetics/upload-pieces",
+  boardUploadMiddleware,
+  asyncHandler(uploadPiecesImageAndCreateAdmin)
 );
 router.post("/cosmetics", asyncHandler(createCosmeticAdmin));
 router.put("/cosmetics/:cosmeticId", asyncHandler(updateCosmeticAdmin));
