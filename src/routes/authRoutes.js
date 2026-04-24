@@ -99,7 +99,13 @@ router.post(
 router.post(
   "/google",
   authLimiter,
-  [body("idToken").trim().notEmpty().withMessage("Google token required")],
+  [
+    body("idToken").trim().notEmpty().withMessage("Google token required"),
+    body("intent")
+      .optional()
+      .isIn(["login", "register"])
+      .withMessage("Google intent must be login or register"),
+  ],
   validateRequest,
   asyncHandler(googleLogin)
 );

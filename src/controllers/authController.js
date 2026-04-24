@@ -511,6 +511,16 @@ export async function googleLogin(req, res, next) {
 
     const firebaseAuth = getFirebaseAdminAuth();
     const firebaseIdToken = String(req.body?.idToken || "").trim();
+    const intent = String(req.body?.intent || "login")
+      .trim()
+      .toLowerCase();
+
+    if (intent !== "login" && intent !== "register") {
+      return res
+        .status(400)
+        .json({ message: "Google intent must be login or register" });
+    }
+
     let decoded = null;
 
     if (firebaseAuth) {
@@ -549,6 +559,20 @@ export async function googleLogin(req, res, next) {
       "+refreshToken moderation.isBanned moderation.suspendedUntil"
     );
 
+    if (intent === "login" && !user) {
+      return res.status(404).json({
+        message: "No account found with this Google account. Please register first.",
+        code: "GOOGLE_ACCOUNT_NOT_REGISTERED",
+      });
+    }
+
+    if (intent === "register" && user) {
+      return res.status(409).json({
+        message: "Account already exists. Please login.",
+        code: "GOOGLE_ACCOUNT_ALREADY_EXISTS",
+      });
+    }
+
     if (!user) {
       const usernameHint =
         req.body?.username || googleName || safeEmail.split("@")[0] || "player";
@@ -567,7 +591,7 @@ export async function googleLogin(req, res, next) {
         },
       });
       user = await User.findById(user._id).select("+refreshToken");
-    } else {
+    } else if (intent === "login") {
       let changed = false;
 
       if (!user.emailVerified) {
