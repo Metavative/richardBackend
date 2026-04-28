@@ -7,6 +7,7 @@ import {
   claimMyCoins,
   buyCoins,
   captureOrder,
+  creditRevenueCatPurchase,
 } from "./economy.controller.js";
 
 const router = express.Router();
@@ -17,5 +18,6 @@ router.post("/claim", authMiddleware, claimMyCoins);
 // PayPal
 router.post("/buy-coins", authMiddleware, buyCoins);
 router.post("/capture-order", authMiddleware, captureOrder);
+router.post("/revenuecat-credit", authMiddleware, creditRevenueCatPurchase);
 
 export default router;

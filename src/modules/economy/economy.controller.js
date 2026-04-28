@@ -226,3 +226,35 @@ export async function captureOrder(req, res) {
     return res.fail("Could not verify payment with PayPal", 500);
   }
 }
+
+// ---------------------------------------------------------------------------
+// POST /economy/revenuecat-credit (temporary credit bridge for RC checkout)
+// NOTE: For production hardening, replace this with RevenueCat webhook-based
+// verification and idempotent transaction processing.
+// ---------------------------------------------------------------------------
+export async function creditRevenueCatPurchase(req, res) {
+  try {
+    const userId = getAuthedUserId(req);
+    if (!userId) return res.fail("UNAUTHORIZED", 401);
+
+    const { packId, coins, price } = req.body || {};
+    if (!packId) {
+      return res.fail("packId is required", 400);
+    }
+
+    const result = await buyCoinsDev(userId, {
+      packId,
+      coins: Number(coins),
+      price: Number(price),
+    });
+
+    return res.ok({
+      success: true,
+      message: "RevenueCat purchase credited",
+      purchased: result.purchased,
+      economy: result.snapshot,
+    });
+  } catch (error) {
+    return res.fail(error?.message || "Could not credit purchase", error?.status || 500);
+  }
+}
