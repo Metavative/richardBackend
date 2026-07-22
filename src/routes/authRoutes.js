@@ -6,6 +6,7 @@ import { authLimiter, sensitiveLimiter } from "../middleware/rateLimiters.js";
 import { validateRequest } from "../middleware/validateRequest.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { requireAuth } from "../middleware/auth.js";
+import { requireAdmin } from "../middleware/requireAdmin.js";
 import { upload } from "../middleware/upload.js";
 
 import {
@@ -182,7 +183,7 @@ router.post(
   asyncHandler(selectRole)
 );
 
-router.get("/fetchUsers", asyncHandler(fetchUsers));
+router.get("/fetchUsers", requireAdmin, asyncHandler(fetchUsers));
 router.delete("/delete-account", requireAuth, deleteAccount);
 
 export default router;
